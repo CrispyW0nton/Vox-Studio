@@ -1,0 +1,7 @@
+{
+  "name": "w-okada/voice-changer",
+  "upstream": "https://github.com/w-okada/voice-changer",
+  "pinned_series": "v.1.5.x",
+  "launcher": "launch_rvc_sidecar.cmd",
+  "notes": "Pass 9a sidecar-first RVC runtime. Binary payload and model weights are not checked into git."
+}

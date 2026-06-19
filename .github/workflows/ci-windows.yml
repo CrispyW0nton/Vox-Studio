@@ -1,0 +1,72 @@
+name: Windows CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+
+env:
+  VCPKG_ROOT: C:\vcpkg
+  VCPKG_DEFAULT_TRIPLET: x64-windows
+  VCPKG_DEFAULT_HOST_TRIPLET: x64-windows
+  VCPKG_FEATURE_FLAGS: manifests,versions
+  VOXSTUDIO_VCPKG_BASELINE: e6ed7c5be05eaedc2d06ee3e51bd059409429c5e
+
+jobs:
+  build:
+    name: Build and Test
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select pinned vcpkg baseline
+        shell: pwsh
+        run: |
+          if (!(Test-Path "$env:VCPKG_ROOT\.git")) {
+            git clone https://github.com/microsoft/vcpkg.git "$env:VCPKG_ROOT"
+          }
+          git -C "$env:VCPKG_ROOT" fetch origin $env:VOXSTUDIO_VCPKG_BASELINE --depth 1
+          git -C "$env:VCPKG_ROOT" checkout $env:VOXSTUDIO_VCPKG_BASELINE
+
+      - name: Bootstrap vcpkg
+        shell: pwsh
+        run: '& "$env:VCPKG_ROOT/bootstrap-vcpkg.bat"'
+
+      - name: Restore vcpkg cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.VCPKG_ROOT }}\installed
+            ${{ env.VCPKG_ROOT }}\buildtrees
+            ${{ env.VCPKG_ROOT }}\packages
+          key: windows-vcpkg-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
+          restore-keys: |
+            windows-vcpkg-
+
+      - name: Configure Debug
+        shell: pwsh
+        run: cmake --preset windows-msvc-debug
+
+      - name: Build Debug
+        shell: pwsh
+        run: cmake --build --preset windows-msvc-debug
+
+      - name: Test Debug
+        shell: pwsh
+        run: ctest --preset windows-msvc-debug
+
+      - name: Configure Release
+        shell: pwsh
+        run: cmake --preset windows-msvc-release
+
+      - name: Build Release
+        shell: pwsh
+        run: cmake --build --preset windows-msvc-release
+
+      - name: Test Release
+        shell: pwsh
+        run: ctest --preset windows-msvc-release

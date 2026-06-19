@@ -1,0 +1,18 @@
+[
+  {
+    "model_id": "eleven_multilingual_v2",
+    "name": "Eleven Multilingual v2",
+    "can_do_text_to_speech": true,
+    "can_do_voice_conversion": true,
+    "can_use_style": true,
+    "can_use_speaker_boost": true
+  },
+  {
+    "model_id": "eleven_turbo_v2_5",
+    "name": "Eleven Turbo v2.5",
+    "can_do_text_to_speech": true,
+    "can_do_voice_conversion": false,
+    "can_use_style": false,
+    "can_use_speaker_boost": true
+  }
+]

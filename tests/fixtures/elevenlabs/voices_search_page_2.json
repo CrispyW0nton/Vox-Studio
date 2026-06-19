@@ -1,0 +1,23 @@
+{
+  "voices": [
+    {
+      "voice_id": "voice_002",
+      "name": "Clone Hero",
+      "category": "cloned",
+      "description": "A local test clone.",
+      "preview_url": "https://example.test/voice_002.mp3",
+      "labels": {
+        "accent": "neutral",
+        "age": "adult"
+      },
+      "settings": {
+        "stability": 0.6,
+        "similarity_boost": 0.8
+      },
+      "is_owner": true
+    }
+  ],
+  "has_more": false,
+  "total_count": 2,
+  "next_page_token": null
+}

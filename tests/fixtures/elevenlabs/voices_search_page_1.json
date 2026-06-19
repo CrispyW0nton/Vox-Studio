@@ -1,0 +1,21 @@
+{
+  "voices": [
+    {
+      "voice_id": "voice_001",
+      "name": "Narrator",
+      "category": "premade",
+      "description": "Neutral narration.",
+      "preview_url": "https://example.test/voice_001.mp3",
+      "labels": {
+        "accent": "neutral"
+      },
+      "settings": {
+        "stability": 0.5
+      },
+      "is_owner": false
+    }
+  ],
+  "has_more": true,
+  "total_count": 2,
+  "next_page_token": "page-2"
+}

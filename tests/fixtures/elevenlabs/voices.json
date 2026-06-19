@@ -1,0 +1,20 @@
+{
+  "voices": [
+    {
+      "voice_id": "voice_001",
+      "name": "Narrator",
+      "category": "cloned",
+      "description": "Warm narrator",
+      "labels": {
+        "accent": "neutral",
+        "age": "adult"
+      }
+    },
+    {
+      "voice_id": "voice_002",
+      "name": "Guide",
+      "category": "premade",
+      "labels": {}
+    }
+  ]
+}

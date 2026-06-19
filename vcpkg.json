@@ -1,0 +1,43 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "voxstudio",
+  "version-semver": "0.1.0",
+  "description": "Native Windows AI voice acting studio for indie game developers.",
+  "dependencies": [
+    {
+      "name": "qtbase",
+      "default-features": false,
+      "features": [
+        "concurrent",
+        "network",
+        "openssl",
+        "testlib",
+        "widgets"
+      ]
+    },
+    "sqlitecpp",
+    "curl",
+    "cpr",
+    "ixwebsocket",
+    "nlohmann-json",
+    "spdlog",
+    "miniaudio",
+    "catch2",
+    {
+      "name": "sqlite3",
+      "features": [
+        "tool"
+      ]
+    },
+    "soxr",
+    "libsndfile",
+    "opus"
+  ],
+  "overrides": [
+    {
+      "name": "qtbase",
+      "version": "6.7.3",
+      "port-version": 1
+    }
+  ]
+}

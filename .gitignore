@@ -1,0 +1,42 @@
+# Build output
+build/
+b/
+out/
+.vs/
+.vscode/
+CMakeUserPresets.json
+
+# vcpkg local state
+vcpkg_installed/
+.vcpkg/
+
+# Runtime output
+logs/
+*.log
+
+# Python cache output
+__pycache__/
+*.py[cod]
+
+# User/project data
+*.vox/
+/secrets/
+.env
+.env.*
+
+# Voice, model, and signing material must never enter git.
+*.pth
+*.onnx
+*.pfx
+*.pvk
+*.snk
+*.key
+*.pem
+*.crt
+*.cer
+
+# OS/editor noise
+Thumbs.db
+Desktop.ini
+*.user
+*.suo
