@@ -83,6 +83,8 @@ void MainWindow::createProjectHud() {
 void MainWindow::createWorkspace() {
     auto tabs = std::make_unique<QTabWidget>(this);
     m_workspaceTabs = tabs.get();
+    tabs->setTabPosition(QTabWidget::West);
+    tabs->setDocumentMode(true);
 
     auto label = std::make_unique<QLabel>(QStringLiteral("No project open"), this);
     label->setAlignment(Qt::AlignCenter);

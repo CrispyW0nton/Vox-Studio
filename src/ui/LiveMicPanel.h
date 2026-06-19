@@ -14,6 +14,7 @@
 #include <QWidget>
 
 #include <atomic>
+#include <array>
 #include <deque>
 #include <memory>
 #include <optional>
@@ -74,6 +75,13 @@ private:
     void cancelLocalRvcConversion();
     void openRvcModelManager();
     void updateGain(int value);
+    void updateVoiceFx();
+    void updateOutputRoute(int index);
+    void toggleVoiceChangerPower();
+    void selectQuickVoiceSlot();
+    void updateVoiceHud();
+    void updateTransportState();
+    void setHearSelfChecked(bool enabled);
     void applyMeterUpdate(int level, bool speechActive);
     void enqueueCloudChunk(QByteArray chunk);
     void enqueueLocalRvcChunk(QByteArray chunk);
@@ -93,6 +101,9 @@ private:
     [[nodiscard]] audio::CaptureConfig currentCaptureConfig() const;
     [[nodiscard]] std::string currentVoiceId() const;
     [[nodiscard]] std::string currentRvcModelId() const;
+    [[nodiscard]] QString currentVoiceName() const;
+    [[nodiscard]] QString currentRvcModelName() const;
+    [[nodiscard]] int currentPitchShiftSemitones() const;
     [[nodiscard]] bool ensureCaptureRunning();
 
     audio::Capture m_capture;
@@ -130,18 +141,35 @@ private:
     QLabel* m_vadLabel{nullptr};
     QLabel* m_costLabel{nullptr};
     QLabel* m_statusLabel{nullptr};
+    QLabel* m_selectedVoiceBadge{nullptr};
+    QLabel* m_selectedVoiceLabel{nullptr};
+    QLabel* m_selectedEngineLabel{nullptr};
+    QLabel* m_outputRouteLabel{nullptr};
+    QLabel* m_voiceVolumeValueLabel{nullptr};
+    QLabel* m_bassValueLabel{nullptr};
+    QLabel* m_midValueLabel{nullptr};
+    QLabel* m_trebleValueLabel{nullptr};
+    QLabel* m_pitchValueLabel{nullptr};
     QCheckBox* m_monitorCheck{nullptr};
     QCheckBox* m_recordTakeCheck{nullptr};
     QLineEdit* m_lineIdEdit{nullptr};
     QSlider* m_gainSlider{nullptr};
+    QSlider* m_voiceVolumeSlider{nullptr};
+    QSlider* m_bassSlider{nullptr};
+    QSlider* m_midSlider{nullptr};
+    QSlider* m_trebleSlider{nullptr};
+    QSlider* m_pitchSlider{nullptr};
     QSpinBox* m_frameMsSpin{nullptr};
     QPushButton* m_refreshButton{nullptr};
     QPushButton* m_latencyButton{nullptr};
+    QPushButton* m_voicePowerButton{nullptr};
+    QPushButton* m_monitorButton{nullptr};
     QPushButton* m_cloudButton{nullptr};
     QPushButton* m_cancelCloudButton{nullptr};
     QPushButton* m_localRvcButton{nullptr};
     QPushButton* m_cancelLocalRvcButton{nullptr};
     QPushButton* m_manageRvcModelsButton{nullptr};
+    std::array<QPushButton*, 6> m_quickVoiceButtons{};
 };
 
 } // namespace voxstudio::ui
