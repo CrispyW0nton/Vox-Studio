@@ -736,6 +736,10 @@ void LiveMicPanel::refreshVoices() {
     const bool hasVoices = m_voiceCombo->count() > 0;
     m_voiceCombo->setEnabled(hasVoices);
     m_cloudButton->setEnabled(hasVoices);
+    if (hasVoices && m_modeCombo != nullptr &&
+        m_modeCombo->currentText() == QStringLiteral("Monitor")) {
+        m_modeCombo->setCurrentText(QStringLiteral("Cloud"));
+    }
     if (!hasVoices) {
         setStatusText(QStringLiteral("Sync or clone voices before cloud conversion."));
     }
@@ -921,11 +925,27 @@ void LiveMicPanel::setHearSelfChecked(const bool enabled) {
         const QSignalBlocker blocker{m_monitorButton};
         m_monitorButton->setChecked(enabled);
     }
-    if (m_monitorCheck != nullptr && m_monitorCheck->isChecked() != enabled) {
+    if (m_monitorCheck != nullptr) {
+        const QSignalBlocker blocker{m_monitorCheck};
         m_monitorCheck->setChecked(enabled);
-    } else {
-        updateTransportState();
     }
+
+    if (m_cloudActive || m_localRvcActive) {
+        m_capture.setMonitorEnabled(false);
+        setProcessorPassthrough(false, Qt::QueuedConnection);
+        if (!enabled) {
+            m_audioEngine.clear();
+            setStatusText(QStringLiteral("Converted monitoring muted."));
+        } else {
+            setStatusText(QStringLiteral("Converted voice monitoring enabled."));
+        }
+        updateTransportState();
+        return;
+    }
+
+    setStatusText(enabled ? QStringLiteral("Hear is armed. Press Power to hear the selected voice.")
+                          : QStringLiteral("Converted monitoring muted."));
+    updateTransportState();
 }
 
 void LiveMicPanel::toggleMonitor(const bool enabled) {
@@ -979,13 +999,10 @@ void LiveMicPanel::toggleCloudConversion() {
         m_cloudButton->setText(QStringLiteral("Convert Cloud"));
         m_cancelCloudButton->setEnabled(false);
         setProcessorCloudCapture(false, Qt::BlockingQueuedConnection);
-        if (m_monitorCheck->isChecked()) {
-            m_capture.setMonitorEnabled(true);
-            setProcessorPassthrough(true, Qt::QueuedConnection);
-        } else {
-            stopAudioProcessor(Qt::BlockingQueuedConnection);
-            m_capture.stop();
-        }
+        m_capture.setMonitorEnabled(false);
+        setProcessorPassthrough(false, Qt::QueuedConnection);
+        stopAudioProcessor(Qt::BlockingQueuedConnection);
+        m_capture.stop();
         setStatusText(QStringLiteral("Finishing queued cloud conversion."));
         updateTransportState();
         saveCloudRecordingIfReady();
@@ -1029,7 +1046,9 @@ void LiveMicPanel::cancelCloudConversion() {
     if (m_audioThread.isRunning()) {
         setProcessorCloudCapture(false, Qt::BlockingQueuedConnection);
     }
-    if (!m_monitorCheck->isChecked() && !m_localRvcActive) {
+    if (!m_localRvcActive) {
+        m_capture.setMonitorEnabled(false);
+        setProcessorPassthrough(false, Qt::QueuedConnection);
         stopAudioProcessor(Qt::BlockingQueuedConnection);
         m_capture.stop();
     }
@@ -1043,13 +1062,10 @@ void LiveMicPanel::toggleLocalRvcConversion() {
         m_localRvcButton->setText(QStringLiteral("Start Local"));
         m_cancelLocalRvcButton->setEnabled(false);
         setProcessorLocalRvcCapture(false, Qt::BlockingQueuedConnection);
-        if (m_monitorCheck->isChecked()) {
-            m_capture.setMonitorEnabled(true);
-            setProcessorPassthrough(true, Qt::QueuedConnection);
-        } else {
-            stopAudioProcessor(Qt::BlockingQueuedConnection);
-            m_capture.stop();
-        }
+        m_capture.setMonitorEnabled(false);
+        setProcessorPassthrough(false, Qt::QueuedConnection);
+        stopAudioProcessor(Qt::BlockingQueuedConnection);
+        m_capture.stop();
         m_rvcSidecar.stop();
         if (m_pendingLocalRvcChunks.empty() && !m_localRvcWatcher->isRunning()) {
             m_nativeRvcEngine.reset();
@@ -1162,8 +1178,16 @@ void LiveMicPanel::toggleLocalRvcConversion() {
     m_capture.setMonitorEnabled(false);
     setProcessorPassthrough(false, Qt::BlockingQueuedConnection);
     setProcessorLocalRvcCapture(true, Qt::BlockingQueuedConnection);
-    setStatusText(QStringLiteral("Local RVC active at %1.")
-                      .arg(QString::fromStdString(started.value().endpoint)));
+    QString localStatus =
+        QStringLiteral("Local RVC active at %1.")
+            .arg(QString::fromStdString(started.value().endpoint));
+    const rvc::RvcClient healthClient{started.value().endpoint};
+    auto health = healthClient.health();
+    if (health && health.value().engine == "compat-pass-through") {
+        localStatus += QStringLiteral(
+            " This test sidecar passes audio through; use Cloud for cloned voices.");
+    }
+    setStatusText(localStatus);
     updateTransportState();
 }
 
@@ -1179,7 +1203,9 @@ void LiveMicPanel::cancelLocalRvcConversion() {
     if (m_audioThread.isRunning()) {
         setProcessorLocalRvcCapture(false, Qt::BlockingQueuedConnection);
     }
-    if (!m_monitorCheck->isChecked() && !m_cloudActive) {
+    if (!m_cloudActive) {
+        m_capture.setMonitorEnabled(false);
+        setProcessorPassthrough(false, Qt::QueuedConnection);
         stopAudioProcessor(Qt::BlockingQueuedConnection);
         m_capture.stop();
     }
