@@ -16,7 +16,7 @@ namespace {
 constexpr auto kDefaultBaseUrl = "https://api.elevenlabs.io";
 constexpr auto kAddVoicePath = "/v1/voices/add";
 constexpr auto kSearchVoicesPath = "/v2/voices?page_size=100&include_total_count=true";
-constexpr auto kFilesPartName = "files[]";
+constexpr auto kFilesPartName = "files";
 constexpr std::chrono::seconds kRequestTimeout{30};
 
 [[nodiscard]] std::string joinedUrl(const std::string& baseUrl, const std::string& path) {

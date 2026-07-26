@@ -173,6 +173,6 @@ TEST_CASE("Voices API supports get add edit and delete", "[net][elevenlabs][voic
     REQUIRE(transportView->multipartParts().size() == 2);
     CHECK(containsPart(transportView->multipartParts().at(0), "name", "Clone Hero"));
     CHECK(containsPart(transportView->multipartParts().at(0), "remove_background_noise", "true"));
-    CHECK(transportView->multipartParts().at(0).back().name == "files[]");
+    CHECK(transportView->multipartParts().at(0).back().name == "files");
     CHECK(transportView->multipartParts().at(0).back().isFile);
 }
