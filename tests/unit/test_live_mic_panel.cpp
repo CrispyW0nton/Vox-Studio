@@ -96,12 +96,13 @@ void LiveMicPanelTest::exposesLiveMicControlsAndLatencyProbe() {
     auto* liveInputButton =
         panel.findChild<QPushButton*>(QStringLiteral("LiveMicInputMonitorButton"));
     QVERIFY(liveInputButton != nullptr);
-    QVERIFY(liveInputButton->isChecked());
-    QCOMPARE(liveInputButton->text(), QStringLiteral("Live Input On"));
+    QVERIFY(!liveInputButton->isChecked());
+    QCOMPARE(liveInputButton->text(), QStringLiteral("Live Input Off"));
     auto* broadcastButton =
         panel.findChild<QPushButton*>(QStringLiteral("LiveMicBroadcastButton"));
     QVERIFY(broadcastButton != nullptr);
     QVERIFY(broadcastButton->isCheckable());
+    QVERIFY(!broadcastButton->isChecked());
 
     auto* gainSlider = panel.findChild<QSlider*>(QStringLiteral("LiveMicGainSlider"));
     QVERIFY(gainSlider != nullptr);

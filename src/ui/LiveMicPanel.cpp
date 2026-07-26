@@ -28,12 +28,14 @@
 #include <QSettings>
 #include <QSlider>
 #include <QSpinBox>
+#include <QTimer>
 #include <QVBoxLayout>
 #include <QtConcurrent/QtConcurrentRun>
 
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <span>
@@ -46,6 +48,7 @@ namespace {
 
 constexpr int kCloudInputSampleRate = 16000;
 constexpr int kCloudOutputChannels = 1;
+constexpr int kCloudPlaybackTailMs = 200;
 constexpr int kLocalRvcSampleRate = 48000;
 constexpr int kLocalRvcChannels = 1;
 
@@ -144,11 +147,12 @@ void appendPlaybackWarning(QString& warning, const QString& route, const core::E
     warning += QStringLiteral("%1: %2").arg(route, QString::fromStdString(error.message));
 }
 
-void queuePcmForTargets(const PlaybackTargets& targets,
-                        const std::span<const std::uint8_t> bytes,
-                        const int sampleRate,
-                        const int channels,
-                        QString& playbackWarning) {
+[[nodiscard]] bool queuePcmForTargets(const PlaybackTargets& targets,
+                                      const std::span<const std::uint8_t> bytes,
+                                      const int sampleRate,
+                                      const int channels,
+                                      QString& playbackWarning) {
+    bool queuedAny = false;
     const auto queue = [&](audio::AudioEngine* engine, const QString& route) {
         if (engine == nullptr || bytes.empty()) {
             return;
@@ -156,13 +160,16 @@ void queuePcmForTargets(const PlaybackTargets& targets,
         auto queued = engine->queuePcm16LittleEndian(bytes, sampleRate, channels);
         if (!queued) {
             appendPlaybackWarning(playbackWarning, route, queued.error());
+            return;
         }
+        queuedAny = true;
     };
 
     queue(targets.monitor, QStringLiteral("Monitor"));
     if (targets.broadcast != targets.monitor) {
         queue(targets.broadcast, QStringLiteral("Broadcast"));
     }
+    return queuedAny;
 }
 
 [[nodiscard]] core::Expected<std::string> loadApiKey() {
@@ -218,17 +225,27 @@ void queuePcmForTargets(const PlaybackTargets& targets,
     }
 
     QString playbackWarning;
-    queuePcmForTargets(playbackTargets,
-                       streamed.value().audioBytes,
-                       outputSampleRate,
-                       kCloudOutputChannels,
-                       playbackWarning);
+    const auto playbackQueued = queuePcmForTargets(playbackTargets,
+                                                   streamed.value().audioBytes,
+                                                   outputSampleRate,
+                                                   kCloudOutputChannels,
+                                                   playbackWarning);
+    const auto outputFrames =
+        streamed.value().audioBytes.size() / (sizeof(std::int16_t) * kCloudOutputChannels);
+    const auto playbackDurationMs =
+        playbackQueued
+            ? static_cast<int>(std::ceil(
+                  ((static_cast<double>(outputFrames) * 1000.0) /
+                   static_cast<double>(outputSampleRate)) *
+                  playbackTargets.durationScale))
+            : 0;
     return CloudConversionResult{true,
                                  QStringLiteral("Character phrase converted."),
                                  playbackWarning,
                                  byteArrayFromBytes(streamed.value().audioBytes),
                                  streamed.value().inputSeconds,
-                                 outputSampleRate};
+                                 outputSampleRate,
+                                 playbackDurationMs};
 }
 
 [[nodiscard]] LocalRvcConversionResult convertLocalRvcChunk(
@@ -257,11 +274,11 @@ void queuePcmForTargets(const PlaybackTargets& targets,
             return true;
         }
 
-        queuePcmForTargets(playbackTargets,
-                           chunk,
-                           kLocalRvcSampleRate,
-                           kLocalRvcChannels,
-                           playbackWarning);
+        (void)queuePcmForTargets(playbackTargets,
+                                 chunk,
+                                 kLocalRvcSampleRate,
+                                 kLocalRvcChannels,
+                                 playbackWarning);
         return true;
     };
 
@@ -313,11 +330,11 @@ void queuePcmForTargets(const PlaybackTargets& targets,
     }
 
     QString playbackWarning;
-    queuePcmForTargets(playbackTargets,
-                       converted.value().pcm16Audio,
-                       converted.value().sampleRate,
-                       converted.value().channels,
-                       playbackWarning);
+    (void)queuePcmForTargets(playbackTargets,
+                             converted.value().pcm16Audio,
+                             converted.value().sampleRate,
+                             converted.value().channels,
+                             playbackWarning);
 
     return LocalRvcConversionResult{true,
                                     QStringLiteral("Native RVC chunk converted."),
@@ -457,10 +474,10 @@ LiveMicPanel::LiveMicPanel(QWidget* parent)
     m_monitorButton->setToolTip(
         QStringLiteral("Play changed character phrases through the selected headphones."));
     m_liveInputButton =
-        addOwnedWidget<QPushButton>(*transportLayout, QStringLiteral("Live Input On"));
+        addOwnedWidget<QPushButton>(*transportLayout, QStringLiteral("Live Input Off"));
     m_liveInputButton->setObjectName(QStringLiteral("LiveMicInputMonitorButton"));
     m_liveInputButton->setCheckable(true);
-    m_liveInputButton->setChecked(true);
+    m_liveInputButton->setChecked(false);
     m_liveInputButton->setToolTip(
         QStringLiteral("Hear your unchanged microphone while recording a performance."));
     m_broadcastButton =
@@ -786,7 +803,7 @@ void LiveMicPanel::refreshDevices() {
         }
         {
             const QSignalBlocker broadcastButtonBlocker{m_broadcastButton};
-            m_broadcastButton->setChecked(virtualIndex >= 0);
+            m_broadcastButton->setChecked(false);
         }
         m_broadcastButton->setEnabled(!m_outputDevices.empty());
     }
@@ -1245,6 +1262,8 @@ void LiveMicPanel::toggleCloudConversion() {
     m_cloudCancelFlag = std::make_shared<std::atomic_bool>(false);
     m_pendingCloudChunks.clear();
     m_recordedCloudPcm.clear();
+    ++m_cloudPlaybackGeneration;
+    m_cloudPlaybackGuardActive = false;
     m_cloudOutputSampleRate = 24000;
     m_cloudSeconds = 0.0;
     m_costLabel->setText(QStringLiteral("Character audio: 0.0 s"));
@@ -1255,6 +1274,7 @@ void LiveMicPanel::toggleCloudConversion() {
     const bool liveInput = m_liveInputButton != nullptr && m_liveInputButton->isChecked();
     m_capture.setMonitorEnabled(liveInput);
     setProcessorPassthrough(liveInput, Qt::BlockingQueuedConnection);
+    setProcessorCloudCapturePaused(false, Qt::BlockingQueuedConnection);
     setProcessorCloudCapture(true, Qt::BlockingQueuedConnection);
     setStatusText(
         liveInput
@@ -1270,11 +1290,16 @@ void LiveMicPanel::cancelCloudConversion() {
         m_cloudCancelFlag->store(true, std::memory_order_release);
     }
     m_cloudActive = false;
+    ++m_cloudPlaybackGeneration;
+    m_cloudPlaybackGuardActive = false;
     m_pendingCloudChunks.clear();
     m_recordedCloudPcm.clear();
+    m_audioEngine.clear();
+    m_broadcastAudioEngine.clear();
     m_cloudButton->setText(QStringLiteral("Record Performance"));
     m_cancelCloudButton->setEnabled(false);
     if (m_audioThread.isRunning()) {
+        setProcessorCloudCapturePaused(false, Qt::BlockingQueuedConnection);
         setProcessorCloudCapture(false, Qt::BlockingQueuedConnection);
     }
     if (!m_localRvcActive) {
@@ -1518,6 +1543,7 @@ void LiveMicPanel::enqueueLocalRvcChunk(QByteArray chunk) {
 void LiveMicPanel::finishCloudConversion() {
     const auto result = m_cloudWatcher->result();
     if (m_cloudCancelFlag != nullptr && m_cloudCancelFlag->load(std::memory_order_acquire)) {
+        m_cloudPlaybackGuardActive = false;
         setStatusText(QStringLiteral("Cloud conversion cancelled."));
         return;
     }
@@ -1535,8 +1561,7 @@ void LiveMicPanel::finishCloudConversion() {
                                 .arg(result.message, result.playbackWarning));
     }
 
-    startNextCloudChunk();
-    saveCloudRecordingIfReady();
+    finishCloudPlaybackGuard(result.success ? result.playbackDurationMs : 0);
 }
 
 void LiveMicPanel::finishLocalRvcConversion() {
@@ -1635,6 +1660,22 @@ void LiveMicPanel::setProcessorCloudCapture(const bool enabled,
         connectionType);
 }
 
+void LiveMicPanel::setProcessorCloudCapturePaused(
+    const bool paused,
+    const Qt::ConnectionType connectionType) {
+    if (m_audioProcessor == nullptr || !m_audioThread.isRunning()) {
+        return;
+    }
+
+    auto* processor = m_audioProcessor;
+    QMetaObject::invokeMethod(
+        processor,
+        [processor, paused]() {
+            processor->setCloudCapturePaused(paused);
+        },
+        connectionType);
+}
+
 void LiveMicPanel::setProcessorLocalRvcCapture(const bool enabled,
                                                const Qt::ConnectionType connectionType) {
     if (m_audioProcessor == nullptr || !m_audioThread.isRunning()) {
@@ -1651,7 +1692,8 @@ void LiveMicPanel::setProcessorLocalRvcCapture(const bool enabled,
 }
 
 void LiveMicPanel::startNextCloudChunk() {
-    if (m_cloudWatcher->isRunning() || m_pendingCloudChunks.empty()) {
+    if (m_cloudWatcher->isRunning() || m_cloudPlaybackGuardActive ||
+        m_pendingCloudChunks.empty()) {
         saveCloudRecordingIfReady();
         return;
     }
@@ -1669,6 +1711,9 @@ void LiveMicPanel::startNextCloudChunk() {
 
     auto chunk = std::move(m_pendingCloudChunks.front());
     m_pendingCloudChunks.pop_front();
+    m_cloudPlaybackGuardActive = true;
+    ++m_cloudPlaybackGeneration;
+    setProcessorCloudCapturePaused(true, Qt::BlockingQueuedConnection);
     m_costLabel->setText(
         QStringLiteral("Character audio: %1 s | %2 waiting")
             .arg(m_cloudSeconds, 0, 'f', 1)
@@ -1678,6 +1723,24 @@ void LiveMicPanel::startNextCloudChunk() {
     m_cloudWatcher->setFuture(QtConcurrent::run([voiceId, chunk, playbackTargets, cancelFlag]() {
         return convertCloudChunk(voiceId, chunk, playbackTargets, cancelFlag);
     }));
+}
+
+void LiveMicPanel::finishCloudPlaybackGuard(const int playbackDurationMs) {
+    const auto generation = m_cloudPlaybackGeneration;
+    const auto delayMs =
+        playbackDurationMs > 0 ? playbackDurationMs + kCloudPlaybackTailMs : 0;
+    QTimer::singleShot(delayMs, this, [this, generation]() {
+        if (generation != m_cloudPlaybackGeneration) {
+            return;
+        }
+
+        m_cloudPlaybackGuardActive = false;
+        if (m_cloudActive) {
+            setProcessorCloudCapturePaused(false, Qt::BlockingQueuedConnection);
+        }
+        startNextCloudChunk();
+        saveCloudRecordingIfReady();
+    });
 }
 
 void LiveMicPanel::startNextLocalRvcChunk() {
@@ -2004,6 +2067,9 @@ int LiveMicPanel::currentPitchShiftSemitones() const {
 
 PlaybackTargets LiveMicPanel::currentPlaybackTargets() noexcept {
     PlaybackTargets targets;
+    const auto pitchFactor = std::clamp(
+        std::pow(2.0, static_cast<double>(currentPitchShiftSemitones()) / 12.0), 0.25, 4.0);
+    targets.durationScale = 1.0 / pitchFactor;
     if (m_monitorCheck != nullptr && m_monitorCheck->isChecked()) {
         targets.monitor = &m_audioEngine;
     }

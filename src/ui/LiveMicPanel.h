@@ -18,6 +18,7 @@
 
 #include <atomic>
 #include <array>
+#include <cstdint>
 #include <deque>
 #include <memory>
 #include <optional>
@@ -48,6 +49,7 @@ struct CloudConversionResult final {
     QByteArray convertedPcmBytes;
     double inputSeconds{0.0};
     int sampleRate{24000};
+    int playbackDurationMs{0};
 };
 
 struct LocalRvcConversionResult final {
@@ -63,6 +65,7 @@ struct LocalRvcConversionResult final {
 struct PlaybackTargets final {
     audio::AudioEngine* monitor{nullptr};
     audio::AudioEngine* broadcast{nullptr};
+    double durationScale{1.0};
 };
 
 class LiveMicPanel final : public QWidget {
@@ -105,8 +108,10 @@ private:
     void stopAudioProcessor(Qt::ConnectionType connectionType);
     void setProcessorPassthrough(bool enabled, Qt::ConnectionType connectionType);
     void setProcessorCloudCapture(bool enabled, Qt::ConnectionType connectionType);
+    void setProcessorCloudCapturePaused(bool paused, Qt::ConnectionType connectionType);
     void setProcessorLocalRvcCapture(bool enabled, Qt::ConnectionType connectionType);
     void startNextCloudChunk();
+    void finishCloudPlaybackGuard(int playbackDurationMs);
     void startNextLocalRvcChunk();
     void saveCloudRecordingIfReady();
     void saveLocalRvcRecordingIfReady();
@@ -157,6 +162,8 @@ private:
     int m_cloudOutputSampleRate{24000};
     int m_localRvcOutputSampleRate{48000};
     int m_localRvcOutputChannels{1};
+    std::uint64_t m_cloudPlaybackGeneration{0};
+    bool m_cloudPlaybackGuardActive{false};
     bool m_cloudActive{false};
     bool m_localRvcActive{false};
     QComboBox* m_inputDeviceCombo{nullptr};

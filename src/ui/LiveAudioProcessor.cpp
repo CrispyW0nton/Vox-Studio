@@ -44,6 +44,7 @@ void LiveAudioProcessor::start(audio::Capture* capture) {
     m_vad = dsp::Vad{};
     m_cloudPhraseBuffer.reset();
     m_localRvcPcmBuffer.clear();
+    m_cloudCapturePaused = false;
 
     if (!m_timer) {
         m_timer = std::make_unique<QTimer>();
@@ -75,6 +76,11 @@ void LiveAudioProcessor::setCloudCaptureEnabled(const bool enabled) {
         m_cloudPhraseBuffer.reset();
     }
     m_cloudCaptureEnabled = enabled;
+}
+
+void LiveAudioProcessor::setCloudCapturePaused(const bool paused) {
+    m_cloudCapturePaused = paused;
+    m_cloudPhraseBuffer.reset();
 }
 
 void LiveAudioProcessor::setLocalRvcCaptureEnabled(const bool enabled) {
@@ -126,7 +132,7 @@ void LiveAudioProcessor::processOnce() {
         if (m_passthroughEnabled && !m_capture->tryPushMonitorFrame(cleaned.value())) {
             emit statusMessage(QStringLiteral("Monitor queue is full; dropping a frame."));
         }
-        if (m_cloudCaptureEnabled) {
+        if (m_cloudCaptureEnabled && !m_cloudCapturePaused) {
             appendCloudFrame(cleaned.value(), vad.speechActive);
         }
         if (m_localRvcCaptureEnabled) {

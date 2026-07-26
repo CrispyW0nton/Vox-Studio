@@ -25,6 +25,7 @@ public:
     void stop();
     void setPassthroughEnabled(bool enabled);
     void setCloudCaptureEnabled(bool enabled);
+    void setCloudCapturePaused(bool paused);
     void setLocalRvcCaptureEnabled(bool enabled);
     void flushCloudCapture();
     void flushLocalRvcCapture();
@@ -50,6 +51,7 @@ private:
     QByteArray m_localRvcPcmBuffer;
     bool m_passthroughEnabled{true};
     bool m_cloudCaptureEnabled{false};
+    bool m_cloudCapturePaused{false};
     bool m_localRvcCaptureEnabled{false};
 };
 
