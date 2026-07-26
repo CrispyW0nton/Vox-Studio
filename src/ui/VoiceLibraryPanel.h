@@ -2,6 +2,7 @@
 
 #include "audio/AudioPreview.h"
 #include "core/Project.h"
+#include "db/ScriptRepository.h"
 #include "db/VoiceRepository.h"
 #include "net/elevenlabs/Models.h"
 #include "net/elevenlabs/VoicesApi.h"
@@ -58,6 +59,7 @@ private:
     void editSelectedVoice();
     void deleteSelectedVoice();
     void previewSelectedVoice();
+    void assignSelectedVoiceToCharacter();
     void finishVoiceTask();
     void finishPreviewTask();
     void setBusy(bool isBusy);
@@ -66,6 +68,7 @@ private:
     [[nodiscard]] std::optional<net::elevenlabs::VoiceInfo> selectedVoice() const;
 
     db::VoiceRepository m_voiceRepository;
+    db::ScriptRepository m_scriptRepository;
     std::optional<core::Project> m_project;
     std::vector<net::elevenlabs::VoiceInfo> m_voices;
     QListWidget* m_voiceList{nullptr};
@@ -73,6 +76,7 @@ private:
     QPushButton* m_refreshButton{nullptr};
     QPushButton* m_cloneButton{nullptr};
     QPushButton* m_previewButton{nullptr};
+    QPushButton* m_assignButton{nullptr};
     QPushButton* m_editButton{nullptr};
     QPushButton* m_deleteButton{nullptr};
     std::unique_ptr<QFutureWatcher<VoiceLibraryTaskResult>> m_voiceTaskWatcher;

@@ -44,6 +44,8 @@ set(VOXSTUDIO_CORE_SOURCES
     src/audio/AudioPreview.h
     src/audio/RingBuffer.cpp
     src/audio/RingBuffer.h
+    src/audio/SpeechPhraseBuffer.cpp
+    src/audio/SpeechPhraseBuffer.h
     src/audio/AudioTypes.h
     src/audio/Resampler.cpp
     src/audio/Resampler.h
@@ -256,6 +258,7 @@ if(BUILD_TESTING)
         tests/unit/test_elevenlabs_client.cpp
         tests/unit/test_elevenlabs_models.cpp
         tests/unit/test_live_audio.cpp
+        tests/unit/test_speech_phrase_buffer.cpp
         tests/unit/test_onnx_rvc_engine.cpp
         tests/unit/test_project_repository.cpp
         tests/unit/test_rvc_client.cpp

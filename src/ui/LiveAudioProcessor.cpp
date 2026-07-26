@@ -16,7 +16,6 @@ constexpr int kMaxFramesPerTick = 16;
 constexpr int kCloudSampleRate = 16000;
 constexpr int kCloudSourceSampleRate = audio::kRealtimeSampleRate;
 constexpr int kCloudDownsampleRatio = kCloudSourceSampleRate / kCloudSampleRate;
-constexpr qsizetype kCloudChunkBytes = kCloudSampleRate * 2;
 constexpr int kLocalRvcFrameMs = 20;
 constexpr qsizetype kLocalRvcChunkBytes =
     (audio::kRealtimeSampleRate * kLocalRvcFrameMs / 1000) * 2;
@@ -43,7 +42,7 @@ void LiveAudioProcessor::start(audio::Capture* capture) {
     m_capture = capture;
     m_noiseSuppressor = dsp::NoiseSuppressor{};
     m_vad = dsp::Vad{};
-    m_cloudPcmBuffer.clear();
+    m_cloudPhraseBuffer.reset();
     m_localRvcPcmBuffer.clear();
 
     if (!m_timer) {
@@ -73,8 +72,7 @@ void LiveAudioProcessor::setCloudCaptureEnabled(const bool enabled) {
     if (!enabled) {
         flushCloudCapture();
     } else {
-        m_cloudPcmBuffer.clear();
-        m_cloudPcmBuffer.reserve(kCloudChunkBytes);
+        m_cloudPhraseBuffer.reset();
     }
     m_cloudCaptureEnabled = enabled;
 }
@@ -90,8 +88,11 @@ void LiveAudioProcessor::setLocalRvcCaptureEnabled(const bool enabled) {
 }
 
 void LiveAudioProcessor::flushCloudCapture() {
-    if (!m_cloudPcmBuffer.isEmpty()) {
-        emitCloudChunk();
+    auto phrase = m_cloudPhraseBuffer.flush();
+    if (phrase.has_value() && !phrase->empty()) {
+        emit cloudPcmChunkReady(
+            QByteArray{reinterpret_cast<const char*>(phrase->data()),
+                       static_cast<qsizetype>(phrase->size())});
     }
 }
 
@@ -126,7 +127,7 @@ void LiveAudioProcessor::processOnce() {
             emit statusMessage(QStringLiteral("Monitor queue is full; dropping a frame."));
         }
         if (m_cloudCaptureEnabled) {
-            appendCloudFrame(cleaned.value());
+            appendCloudFrame(cleaned.value(), vad.speechActive);
         }
         if (m_localRvcCaptureEnabled) {
             appendLocalRvcFrame(cleaned.value());
@@ -139,12 +140,15 @@ void LiveAudioProcessor::processOnce() {
     emit meterUpdated(std::clamp(static_cast<int>(peakRms * 300.0F), 0, 100), speechActive);
 }
 
-void LiveAudioProcessor::appendCloudFrame(const audio::AudioFrame& frame) {
+void LiveAudioProcessor::appendCloudFrame(const audio::AudioFrame& frame,
+                                          const bool speechActive) {
     if (frame.sampleRate != kCloudSourceSampleRate || frame.channels != audio::kRealtimeChannels) {
         emit statusMessage(QStringLiteral("Cloud capture requires 48 kHz mono input."));
         return;
     }
 
+    QByteArray downsampled;
+    downsampled.reserve(static_cast<qsizetype>((frame.frameCount / kCloudDownsampleRatio) * 2U));
     std::array<char, 2> bytes{};
     for (std::size_t index = 0; index + 2U < frame.frameCount;
          index += static_cast<std::size_t>(kCloudDownsampleRatio)) {
@@ -154,18 +158,22 @@ void LiveAudioProcessor::appendCloudFrame(const audio::AudioFrame& frame) {
         const auto sample = floatToPcm16(averaged);
         bytes[0] = static_cast<char>(sample & 0xFF);
         bytes[1] = static_cast<char>((sample >> 8) & 0xFF);
-        m_cloudPcmBuffer.append(bytes.data(), static_cast<qsizetype>(bytes.size()));
+        downsampled.append(bytes.data(), static_cast<qsizetype>(bytes.size()));
     }
 
-    while (m_cloudPcmBuffer.size() >= kCloudChunkBytes) {
-        emit cloudPcmChunkReady(m_cloudPcmBuffer.left(kCloudChunkBytes));
-        m_cloudPcmBuffer.remove(0, kCloudChunkBytes);
+    const auto* first = reinterpret_cast<const std::uint8_t*>(downsampled.constData());
+    auto phrase = m_cloudPhraseBuffer.append(
+        std::span<const std::uint8_t>{first, static_cast<std::size_t>(downsampled.size())},
+        speechActive);
+    if (phrase.has_value() && !phrase->empty()) {
+        emit cloudPcmChunkReady(
+            QByteArray{reinterpret_cast<const char*>(phrase->data()),
+                       static_cast<qsizetype>(phrase->size())});
     }
 }
 
 void LiveAudioProcessor::emitCloudChunk() {
-    emit cloudPcmChunkReady(m_cloudPcmBuffer);
-    m_cloudPcmBuffer.clear();
+    flushCloudCapture();
 }
 
 void LiveAudioProcessor::appendLocalRvcFrame(const audio::AudioFrame& frame) {

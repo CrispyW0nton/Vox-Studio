@@ -28,6 +28,7 @@
 #include <QtConcurrent/QtConcurrentRun>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <memory>
@@ -54,7 +55,9 @@ template <typename TWidget, typename... TArgs>
 
 [[nodiscard]] int defaultDeviceIndex(const std::vector<audio::AudioDeviceInfo>& devices) {
     const auto found = std::ranges::find_if(devices, &audio::AudioDeviceInfo::isDefault);
-    return found == devices.end() ? -1 : found->index;
+    return found == devices.end()
+               ? -1
+               : static_cast<int>(std::distance(devices.begin(), found));
 }
 
 [[nodiscard]] int comboDeviceIndex(const QComboBox* combo) {
@@ -62,6 +65,27 @@ template <typename TWidget, typename... TArgs>
         return -1;
     }
     return combo->currentData().toInt();
+}
+
+[[nodiscard]] int preferredVirtualOutputIndex(
+    const std::vector<audio::AudioDeviceInfo>& devices) {
+    static constexpr std::array preferredNames{
+        "voicemod virtual audio device",
+        "cable input",
+        "voicemeeter input",
+        "virtual audio cable",
+    };
+
+    for (const auto preferredName : preferredNames) {
+        const auto found = std::ranges::find_if(devices, [preferredName](const auto& device) {
+            return QString::fromStdString(device.name)
+                .contains(QString::fromLatin1(preferredName), Qt::CaseInsensitive);
+        });
+        if (found != devices.end()) {
+            return static_cast<int>(std::distance(devices.begin(), found));
+        }
+    }
+    return -1;
 }
 
 [[nodiscard]] QString deviceLabel(const audio::AudioDeviceInfo& device) {
@@ -109,6 +133,34 @@ template <typename TWidget, typename... TArgs>
     return label;
 }
 
+void appendPlaybackWarning(QString& warning, const QString& route, const core::Error& error) {
+    if (!warning.isEmpty()) {
+        warning += QStringLiteral(" ");
+    }
+    warning += QStringLiteral("%1: %2").arg(route, QString::fromStdString(error.message));
+}
+
+void queuePcmForTargets(const PlaybackTargets& targets,
+                        const std::span<const std::uint8_t> bytes,
+                        const int sampleRate,
+                        const int channels,
+                        QString& playbackWarning) {
+    const auto queue = [&](audio::AudioEngine* engine, const QString& route) {
+        if (engine == nullptr || bytes.empty()) {
+            return;
+        }
+        auto queued = engine->queuePcm16LittleEndian(bytes, sampleRate, channels);
+        if (!queued) {
+            appendPlaybackWarning(playbackWarning, route, queued.error());
+        }
+    };
+
+    queue(targets.monitor, QStringLiteral("Monitor"));
+    if (targets.broadcast != targets.monitor) {
+        queue(targets.broadcast, QStringLiteral("Broadcast"));
+    }
+}
+
 [[nodiscard]] core::Expected<std::string> loadApiKey() {
     const secrets::DpapiVault vault;
     return vault.loadElevenLabsApiKey();
@@ -127,7 +179,7 @@ template <typename TWidget, typename... TArgs>
 [[nodiscard]] CloudConversionResult convertCloudChunk(
     const std::string& voiceId,
     const QByteArray& inputPcmBytes,
-    audio::AudioEngine* audioEngine,
+    const PlaybackTargets playbackTargets,
     const std::shared_ptr<std::atomic_bool>& cancelFlag) {
     if (cancelFlag != nullptr && cancelFlag->load(std::memory_order_acquire)) {
         return CloudConversionResult{false, QStringLiteral("Cloud conversion cancelled.")};
@@ -147,7 +199,7 @@ template <typename TWidget, typename... TArgs>
 
     std::vector<std::uint8_t> pendingBytes;
     QString playbackWarning;
-    const auto onChunk = [audioEngine, outputSampleRate, &pendingBytes, &playbackWarning,
+    const auto onChunk = [playbackTargets, outputSampleRate, &pendingBytes, &playbackWarning,
                           cancelFlag](std::span<const std::uint8_t> chunk) {
         if (cancelFlag != nullptr && cancelFlag->load(std::memory_order_acquire)) {
             return false;
@@ -155,18 +207,17 @@ template <typename TWidget, typename... TArgs>
 
         pendingBytes.insert(pendingBytes.end(), chunk.begin(), chunk.end());
         const auto playableByteCount = pendingBytes.size() - (pendingBytes.size() % 2U);
-        if (playableByteCount == 0U || audioEngine == nullptr || outputSampleRate <= 0) {
+        if (playableByteCount == 0U || outputSampleRate <= 0) {
             return true;
         }
 
         const auto playableBytes =
             std::span<const std::uint8_t>{pendingBytes.data(), playableByteCount};
-        auto queued = audioEngine->queuePcm16LittleEndian(playableBytes,
-                                                          outputSampleRate,
-                                                          kCloudOutputChannels);
-        if (!queued && playbackWarning.isEmpty()) {
-            playbackWarning = QString::fromStdString(queued.error().message);
-        }
+        queuePcmForTargets(playbackTargets,
+                           playableBytes,
+                           outputSampleRate,
+                           kCloudOutputChannels,
+                           playbackWarning);
         pendingBytes.erase(pendingBytes.begin(),
                            pendingBytes.begin() +
                                static_cast<std::ptrdiff_t>(playableByteCount));
@@ -183,7 +234,7 @@ template <typename TWidget, typename... TArgs>
     }
 
     return CloudConversionResult{true,
-                                 QStringLiteral("Cloud chunk converted."),
+                                 QStringLiteral("Character phrase converted."),
                                  playbackWarning,
                                  byteArrayFromBytes(streamed.value().audioBytes),
                                  streamed.value().inputSeconds};
@@ -193,7 +244,7 @@ template <typename TWidget, typename... TArgs>
     const std::string& endpoint,
     const std::string& modelId,
     const QByteArray& inputPcmBytes,
-    audio::AudioEngine* audioEngine,
+    const PlaybackTargets playbackTargets,
     const std::shared_ptr<std::atomic_bool>& cancelFlag) {
     if (cancelFlag != nullptr && cancelFlag->load(std::memory_order_acquire)) {
         return LocalRvcConversionResult{false, QStringLiteral("Local RVC cancelled.")};
@@ -206,21 +257,20 @@ template <typename TWidget, typename... TArgs>
     request.channels = kLocalRvcChannels;
 
     QString playbackWarning;
-    const auto onChunk = [audioEngine, &playbackWarning, cancelFlag](
+    const auto onChunk = [playbackTargets, &playbackWarning, cancelFlag](
                              std::span<const std::uint8_t> chunk) {
         if (cancelFlag != nullptr && cancelFlag->load(std::memory_order_acquire)) {
             return false;
         }
-        if (chunk.empty() || audioEngine == nullptr) {
+        if (chunk.empty()) {
             return true;
         }
 
-        auto queued = audioEngine->queuePcm16LittleEndian(chunk,
-                                                          kLocalRvcSampleRate,
-                                                          kLocalRvcChannels);
-        if (!queued && playbackWarning.isEmpty()) {
-            playbackWarning = QString::fromStdString(queued.error().message);
-        }
+        queuePcmForTargets(playbackTargets,
+                           chunk,
+                           kLocalRvcSampleRate,
+                           kLocalRvcChannels,
+                           playbackWarning);
         return true;
     };
 
@@ -247,7 +297,7 @@ template <typename TWidget, typename... TArgs>
 [[nodiscard]] LocalRvcConversionResult convertNativeRvcChunk(
     const std::shared_ptr<rvc::OnnxRvcEngine>& engine,
     const QByteArray& inputPcmBytes,
-    audio::AudioEngine* audioEngine,
+    const PlaybackTargets playbackTargets,
     const std::shared_ptr<std::atomic_bool>& cancelFlag) {
     if (cancelFlag != nullptr && cancelFlag->load(std::memory_order_acquire)) {
         return LocalRvcConversionResult{false, QStringLiteral("Native RVC cancelled.")};
@@ -272,14 +322,11 @@ template <typename TWidget, typename... TArgs>
     }
 
     QString playbackWarning;
-    if (audioEngine != nullptr && !converted.value().pcm16Audio.empty()) {
-        auto queued = audioEngine->queuePcm16LittleEndian(converted.value().pcm16Audio,
-                                                          converted.value().sampleRate,
-                                                          converted.value().channels);
-        if (!queued) {
-            playbackWarning = QString::fromStdString(queued.error().message);
-        }
-    }
+    queuePcmForTargets(playbackTargets,
+                       converted.value().pcm16Audio,
+                       converted.value().sampleRate,
+                       converted.value().channels,
+                       playbackWarning);
 
     return LocalRvcConversionResult{true,
                                     QStringLiteral("Native RVC chunk converted."),
@@ -310,7 +357,7 @@ LiveMicPanel::LiveMicPanel(QWidget* parent)
         "QPushButton:disabled { color: #78828a; background: #1b2023; }"
         "#LiveMicPowerButton { min-width: 74px; min-height: 74px; border-radius: 37px;"
         " font-weight: 700; }"
-        "#LiveMicHearButton { min-width: 70px; }"
+        "#LiveMicHearButton, #LiveMicBroadcastButton { min-width: 82px; }"
         "#LiveMicSelectedVoiceBadge { min-width: 108px; min-height: 108px;"
         " border-radius: 54px; background: #10c7d8; color: #071113;"
         " font-size: 30px; font-weight: 800; border: 4px solid #80f5ff; }"
@@ -350,24 +397,31 @@ LiveMicPanel::LiveMicPanel(QWidget* parent)
     m_inputDeviceCombo = addOwnedWidget<QComboBox>(*deviceLayout);
     m_inputDeviceCombo->setObjectName(QStringLiteral("LiveMicInputCombo"));
     deviceLayout->addWidget(m_inputDeviceCombo, 0, 1);
-    deviceLayout->addWidget(std::make_unique<QLabel>(QStringLiteral("Output")).release(), 0, 2);
+    deviceLayout->addWidget(std::make_unique<QLabel>(QStringLiteral("Monitor")).release(), 0, 2);
     m_outputDeviceCombo = addOwnedWidget<QComboBox>(*deviceLayout);
     m_outputDeviceCombo->setObjectName(QStringLiteral("LiveMicOutputCombo"));
     deviceLayout->addWidget(m_outputDeviceCombo, 0, 3);
-    deviceLayout->addWidget(std::make_unique<QLabel>(QStringLiteral("Input gain")).release(), 1, 0);
+    deviceLayout->addWidget(std::make_unique<QLabel>(QStringLiteral("Voice output")).release(), 1, 0);
+    auto broadcastOutputCombo = std::make_unique<QComboBox>();
+    m_broadcastOutputDeviceCombo = broadcastOutputCombo.get();
+    m_broadcastOutputDeviceCombo->setObjectName(QStringLiteral("LiveMicBroadcastOutputCombo"));
+    m_broadcastOutputDeviceCombo->setToolTip(
+        QStringLiteral("Send the converted voice to a virtual audio line used as a microphone."));
+    deviceLayout->addWidget(broadcastOutputCombo.release(), 1, 1, 1, 3);
+    deviceLayout->addWidget(std::make_unique<QLabel>(QStringLiteral("Input gain")).release(), 2, 0);
     m_gainSlider = addOwnedWidget<QSlider>(*deviceLayout, Qt::Horizontal);
     m_gainSlider->setObjectName(QStringLiteral("LiveMicGainSlider"));
     m_gainSlider->setRange(0, 400);
     m_gainSlider->setValue(100);
-    deviceLayout->addWidget(m_gainSlider, 1, 1);
-    deviceLayout->addWidget(std::make_unique<QLabel>(QStringLiteral("Frame")).release(), 1, 2);
+    deviceLayout->addWidget(m_gainSlider, 2, 1);
+    deviceLayout->addWidget(std::make_unique<QLabel>(QStringLiteral("Frame")).release(), 2, 2);
     m_frameMsSpin = addOwnedWidget<QSpinBox>(*deviceLayout);
     m_frameMsSpin->setObjectName(QStringLiteral("LiveMicFrameMsSpin"));
     m_frameMsSpin->setRange(10, audio::kMaxRealtimeFrameMs);
     m_frameMsSpin->setSingleStep(10);
     m_frameMsSpin->setValue(10);
     m_frameMsSpin->setSuffix(QStringLiteral(" ms"));
-    deviceLayout->addWidget(m_frameMsSpin, 1, 3);
+    deviceLayout->addWidget(m_frameMsSpin, 2, 3);
     devicesGroup->setLayout(deviceLayout.release());
     centerLayout->addWidget(devicesGroup.release());
 
@@ -398,11 +452,12 @@ LiveMicPanel::LiveMicPanel(QWidget* parent)
         addOwnedWidget<QLabel>(*transportTextLayout, QStringLiteral("No voice selected"));
     m_selectedVoiceLabel->setObjectName(QStringLiteral("LiveMicSelectedVoiceName"));
     m_selectedEngineLabel =
-        addOwnedWidget<QLabel>(*transportTextLayout, QStringLiteral("Cloud voice changer"));
+        addOwnedWidget<QLabel>(*transportTextLayout, QStringLiteral("ElevenLabs performance"));
     m_selectedEngineLabel->setObjectName(QStringLiteral("LiveMicSelectedEngineLabel"));
     m_outputRouteLabel = addOwnedWidget<QLabel>(*transportTextLayout,
                                                 QStringLiteral("Output: default"));
     m_outputRouteLabel->setObjectName(QStringLiteral("LiveMicOutputRouteLabel"));
+    m_outputRouteLabel->setWordWrap(true);
     transportLayout->addLayout(transportTextLayout.release(), 1);
     m_monitorButton = addOwnedWidget<QPushButton>(*transportLayout, QStringLiteral("Hear"));
     m_monitorButton->setObjectName(QStringLiteral("LiveMicHearButton"));
@@ -410,7 +465,14 @@ LiveMicPanel::LiveMicPanel(QWidget* parent)
     m_monitorButton->setChecked(true);
     m_monitorButton->setToolTip(
         QStringLiteral("Toggle monitoring through the selected output device."));
-    m_costLabel = addOwnedWidget<QLabel>(*transportLayout, QStringLiteral("Cloud cost: 0.0 s"));
+    m_broadcastButton =
+        addOwnedWidget<QPushButton>(*transportLayout, QStringLiteral("Broadcast Off"));
+    m_broadcastButton->setObjectName(QStringLiteral("LiveMicBroadcastButton"));
+    m_broadcastButton->setCheckable(true);
+    m_broadcastButton->setToolTip(
+        QStringLiteral("Send the converted voice to the selected virtual microphone line."));
+    m_costLabel =
+        addOwnedWidget<QLabel>(*transportLayout, QStringLiteral("Character audio: 0.0 s"));
     m_costLabel->setObjectName(QStringLiteral("LiveMicCostLabel"));
     transportFrame->setLayout(transportLayout.release());
     centerLayout->addWidget(transportFrame.release());
@@ -440,7 +502,8 @@ LiveMicPanel::LiveMicPanel(QWidget* parent)
     m_lineIdEdit->setObjectName(QStringLiteral("LiveMicLineIdEdit"));
     m_lineIdEdit->setPlaceholderText(QStringLiteral("Line ID"));
     advancedLayout->addWidget(m_lineIdEdit, 0, 1);
-    m_cloudButton = addOwnedWidget<QPushButton>(*advancedLayout, QStringLiteral("Convert Cloud"));
+    m_cloudButton =
+        addOwnedWidget<QPushButton>(*advancedLayout, QStringLiteral("Perform as Voice"));
     m_cloudButton->setObjectName(QStringLiteral("LiveMicCloudButton"));
     advancedLayout->addWidget(m_cloudButton, 1, 0);
     m_cancelCloudButton = addOwnedWidget<QPushButton>(*advancedLayout, QStringLiteral("Cancel"));
@@ -469,7 +532,7 @@ LiveMicPanel::LiveMicPanel(QWidget* parent)
     m_modeCombo = addOwnedWidget<QComboBox>(*rightLayout);
     m_modeCombo->setObjectName(QStringLiteral("LiveMicModeCombo"));
     m_modeCombo->addItem(QStringLiteral("Monitor"));
-    m_modeCombo->addItem(QStringLiteral("Cloud"));
+    m_modeCombo->addItem(QStringLiteral("Performance"));
     m_modeCombo->addItem(QStringLiteral("Local"));
     rightLayout->addWidget(m_modeCombo, 0, 1);
     rightLayout->addWidget(std::make_unique<QLabel>(QStringLiteral("Voice")).release(), 1, 0);
@@ -549,6 +612,7 @@ LiveMicPanel::LiveMicPanel(QWidget* parent)
     connect(m_refreshButton, &QPushButton::clicked, this, &LiveMicPanel::refreshDevices);
     connect(m_monitorCheck, &QCheckBox::toggled, this, &LiveMicPanel::toggleMonitor);
     connect(m_monitorButton, &QPushButton::toggled, this, &LiveMicPanel::setHearSelfChecked);
+    connect(m_broadcastButton, &QPushButton::toggled, this, &LiveMicPanel::setBroadcastChecked);
     connect(m_voicePowerButton, &QPushButton::clicked, this,
             &LiveMicPanel::toggleVoiceChangerPower);
     connect(m_inputDeviceCombo,
@@ -556,6 +620,10 @@ LiveMicPanel::LiveMicPanel(QWidget* parent)
             this,
             &LiveMicPanel::updateOutputRoute);
     connect(m_outputDeviceCombo,
+            qOverload<int>(&QComboBox::currentIndexChanged),
+            this,
+            &LiveMicPanel::updateOutputRoute);
+    connect(m_broadcastOutputDeviceCombo,
             qOverload<int>(&QComboBox::currentIndexChanged),
             this,
             &LiveMicPanel::updateOutputRoute);
@@ -656,8 +724,17 @@ void LiveMicPanel::setProject(std::optional<core::Project> project) {
 void LiveMicPanel::refreshDevices() {
     const QSignalBlocker inputBlocker{m_inputDeviceCombo};
     const QSignalBlocker outputBlocker{m_outputDeviceCombo};
+    const QSignalBlocker broadcastOutputBlocker{m_broadcastOutputDeviceCombo};
     m_inputDeviceCombo->clear();
     m_outputDeviceCombo->clear();
+    m_broadcastOutputDeviceCombo->clear();
+    m_inputDevices.clear();
+    m_outputDevices.clear();
+    {
+        const QSignalBlocker broadcastButtonBlocker{m_broadcastButton};
+        m_broadcastButton->setChecked(false);
+    }
+    m_broadcastButton->setEnabled(false);
 
     auto inputs = audio::Capture::listInputDevices();
     if (inputs) {
@@ -676,11 +753,21 @@ void LiveMicPanel::refreshDevices() {
         m_outputDevices = std::move(outputs).value();
         for (const auto& device : m_outputDevices) {
             m_outputDeviceCombo->addItem(deviceLabel(device), device.index);
+            m_broadcastOutputDeviceCombo->addItem(deviceLabel(device), device.index);
         }
         const auto defaultIndex = defaultDeviceIndex(m_outputDevices);
         if (defaultIndex >= 0) {
             m_outputDeviceCombo->setCurrentIndex(defaultIndex);
         }
+        const auto virtualIndex = preferredVirtualOutputIndex(m_outputDevices);
+        if (virtualIndex >= 0) {
+            m_broadcastOutputDeviceCombo->setCurrentIndex(virtualIndex);
+        }
+        {
+            const QSignalBlocker broadcastButtonBlocker{m_broadcastButton};
+            m_broadcastButton->setChecked(virtualIndex >= 0);
+        }
+        m_broadcastButton->setEnabled(!m_outputDevices.empty());
     }
 
     if (!inputs || !outputs) {
@@ -695,6 +782,7 @@ void LiveMicPanel::refreshDevices() {
                       .arg(static_cast<int>(m_inputDevices.size()))
                       .arg(static_cast<int>(m_outputDevices.size())));
     updateOutputRoute(m_outputDeviceCombo->currentIndex());
+    updateTransportState();
 }
 
 void LiveMicPanel::refreshVoices() {
@@ -738,10 +826,10 @@ void LiveMicPanel::refreshVoices() {
     m_cloudButton->setEnabled(hasVoices);
     if (hasVoices && m_modeCombo != nullptr &&
         m_modeCombo->currentText() == QStringLiteral("Monitor")) {
-        m_modeCombo->setCurrentText(QStringLiteral("Cloud"));
+        m_modeCombo->setCurrentText(QStringLiteral("Performance"));
     }
     if (!hasVoices) {
-        setStatusText(QStringLiteral("Sync or clone voices before cloud conversion."));
+        setStatusText(QStringLiteral("Sync or clone a voice before a character performance."));
     }
     updateVoiceHud();
 }
@@ -776,11 +864,13 @@ void LiveMicPanel::updateVoiceFx() {
     const auto mid = m_midSlider == nullptr ? 0 : m_midSlider->value();
     const auto treble = m_trebleSlider == nullptr ? 0 : m_trebleSlider->value();
     const auto pitch = currentPitchShiftSemitones();
-    m_audioEngine.setOutputFxSettings(audio::OutputFxSettings{volume,
-                                                              static_cast<float>(bass),
-                                                              static_cast<float>(mid),
-                                                              static_cast<float>(treble),
-                                                              pitch});
+    const audio::OutputFxSettings settings{volume,
+                                           static_cast<float>(bass),
+                                           static_cast<float>(mid),
+                                           static_cast<float>(treble),
+                                           pitch};
+    m_audioEngine.setOutputFxSettings(settings);
+    m_broadcastAudioEngine.setOutputFxSettings(settings);
 
     if (m_voiceVolumeValueLabel != nullptr) {
         m_voiceVolumeValueLabel->setText(QString::number(m_voiceVolumeSlider->value()));
@@ -805,7 +895,30 @@ void LiveMicPanel::updateOutputRoute(int) {
     if (!routed) {
         setStatusText(QString::fromStdString(routed.error().message));
     }
+    const auto broadcastOutputIndex = comboDeviceIndex(m_broadcastOutputDeviceCombo);
+    auto broadcastRouted = m_broadcastAudioEngine.setOutputDeviceIndex(broadcastOutputIndex);
+    if (!broadcastRouted) {
+        setStatusText(QString::fromStdString(broadcastRouted.error().message));
+    }
     updateVoiceHud();
+}
+
+void LiveMicPanel::setBroadcastChecked(const bool enabled) {
+    if (m_broadcastButton != nullptr) {
+        const QSignalBlocker blocker{m_broadcastButton};
+        m_broadcastButton->setChecked(enabled);
+    }
+    if (!enabled) {
+        m_broadcastAudioEngine.clear();
+        setStatusText(QStringLiteral("Virtual microphone output muted."));
+    } else if (m_broadcastOutputDeviceCombo == nullptr ||
+               m_broadcastOutputDeviceCombo->currentIndex() < 0) {
+        setStatusText(QStringLiteral("Select a virtual audio output before broadcasting."));
+    } else {
+        setStatusText(QStringLiteral("Converted voice will feed %1.")
+                          .arg(m_broadcastOutputDeviceCombo->currentText()));
+    }
+    updateTransportState();
 }
 
 void LiveMicPanel::toggleVoiceChangerPower() {
@@ -829,7 +942,7 @@ void LiveMicPanel::toggleVoiceChangerPower() {
     }
 
     if (!currentVoiceId().empty()) {
-        m_modeCombo->setCurrentText(QStringLiteral("Cloud"));
+        m_modeCombo->setCurrentText(QStringLiteral("Performance"));
         setHearSelfChecked(true);
         toggleCloudConversion();
         updateTransportState();
@@ -860,7 +973,7 @@ void LiveMicPanel::selectQuickVoiceSlot() {
     }
 
     m_voiceCombo->setCurrentIndex(voiceIndex);
-    m_modeCombo->setCurrentText(QStringLiteral("Cloud"));
+    m_modeCombo->setCurrentText(QStringLiteral("Performance"));
     updateVoiceHud();
 }
 
@@ -881,15 +994,23 @@ void LiveMicPanel::updateVoiceHud() {
     if (m_selectedEngineLabel != nullptr) {
         const auto engineText =
             mode == QStringLiteral("Local") ? QStringLiteral("Local RVC engine")
-            : mode == QStringLiteral("Cloud") ? QStringLiteral("Cloud cloned voice")
-                                              : QStringLiteral("Direct microphone monitor");
+            : mode == QStringLiteral("Performance")
+                ? QStringLiteral("ElevenLabs performance (converts after each pause)")
+                : QStringLiteral("Direct microphone monitor");
         m_selectedEngineLabel->setText(engineText);
     }
     if (m_outputRouteLabel != nullptr) {
-        const auto route = m_outputDeviceCombo != nullptr && m_outputDeviceCombo->currentIndex() >= 0
-                               ? m_outputDeviceCombo->currentText()
-                               : QStringLiteral("default");
-        m_outputRouteLabel->setText(QStringLiteral("Output: %1").arg(route));
+        const auto monitorRoute =
+            m_outputDeviceCombo != nullptr && m_outputDeviceCombo->currentIndex() >= 0
+                ? m_outputDeviceCombo->currentText()
+                : QStringLiteral("default");
+        const auto broadcastRoute =
+            m_broadcastOutputDeviceCombo != nullptr &&
+                    m_broadcastOutputDeviceCombo->currentIndex() >= 0
+                ? m_broadcastOutputDeviceCombo->currentText()
+                : QStringLiteral("none");
+        m_outputRouteLabel->setText(
+            QStringLiteral("Monitor: %1 | Voice output: %2").arg(monitorRoute, broadcastRoute));
     }
 
     for (std::size_t index = 0; index < m_quickVoiceButtons.size(); ++index) {
@@ -917,6 +1038,12 @@ void LiveMicPanel::updateTransportState() {
         m_monitorButton->setChecked(m_monitorCheck->isChecked());
         m_monitorButton->setText(m_monitorCheck->isChecked() ? QStringLiteral("Hear On")
                                                              : QStringLiteral("Hear Off"));
+    }
+    if (m_broadcastButton != nullptr) {
+        const QSignalBlocker blocker{m_broadcastButton};
+        m_broadcastButton->setText(m_broadcastButton->isChecked()
+                                       ? QStringLiteral("Broadcast On")
+                                       : QStringLiteral("Broadcast Off"));
     }
 }
 
@@ -990,20 +1117,20 @@ void LiveMicPanel::toggleMonitor(const bool enabled) {
 
 void LiveMicPanel::toggleCloudConversion() {
     if (m_localRvcActive) {
-        setStatusText(QStringLiteral("Stop Local RVC before starting cloud conversion."));
+        setStatusText(QStringLiteral("Stop Local RVC before starting a cloud performance."));
         return;
     }
 
     if (m_cloudActive) {
         m_cloudActive = false;
-        m_cloudButton->setText(QStringLiteral("Convert Cloud"));
+        m_cloudButton->setText(QStringLiteral("Perform as Voice"));
         m_cancelCloudButton->setEnabled(false);
         setProcessorCloudCapture(false, Qt::BlockingQueuedConnection);
         m_capture.setMonitorEnabled(false);
         setProcessorPassthrough(false, Qt::QueuedConnection);
         stopAudioProcessor(Qt::BlockingQueuedConnection);
         m_capture.stop();
-        setStatusText(QStringLiteral("Finishing queued cloud conversion."));
+        setStatusText(QStringLiteral("Finishing the last character phrase."));
         updateTransportState();
         saveCloudRecordingIfReady();
         return;
@@ -1022,15 +1149,16 @@ void LiveMicPanel::toggleCloudConversion() {
     m_pendingCloudChunks.clear();
     m_recordedCloudPcm.clear();
     m_cloudSeconds = 0.0;
-    m_costLabel->setText(QStringLiteral("Cloud cost: 0.0 s"));
+    m_costLabel->setText(QStringLiteral("Character audio: 0.0 s"));
     m_cloudActive = true;
-    m_cloudButton->setText(QStringLiteral("Stop Cloud"));
+    m_cloudButton->setText(QStringLiteral("Stop Performance"));
     m_cancelCloudButton->setEnabled(true);
-    m_modeCombo->setCurrentText(QStringLiteral("Cloud"));
+    m_modeCombo->setCurrentText(QStringLiteral("Performance"));
     m_capture.setMonitorEnabled(false);
     setProcessorPassthrough(false, Qt::BlockingQueuedConnection);
     setProcessorCloudCapture(true, Qt::BlockingQueuedConnection);
-    setStatusText(QStringLiteral("Cloud capture active."));
+    setStatusText(
+        QStringLiteral("Performance active. Speak naturally; conversion begins after each pause."));
     updateTransportState();
 }
 
@@ -1041,7 +1169,7 @@ void LiveMicPanel::cancelCloudConversion() {
     m_cloudActive = false;
     m_pendingCloudChunks.clear();
     m_recordedCloudPcm.clear();
-    m_cloudButton->setText(QStringLiteral("Convert Cloud"));
+    m_cloudButton->setText(QStringLiteral("Perform as Voice"));
     m_cancelCloudButton->setEnabled(false);
     if (m_audioThread.isRunning()) {
         setProcessorCloudCapture(false, Qt::BlockingQueuedConnection);
@@ -1077,7 +1205,7 @@ void LiveMicPanel::toggleLocalRvcConversion() {
     }
 
     if (m_cloudActive) {
-        setStatusText(QStringLiteral("Stop Cloud before starting Local RVC."));
+        setStatusText(QStringLiteral("Stop Performance before starting Local RVC."));
         return;
     }
 
@@ -1243,8 +1371,11 @@ void LiveMicPanel::enqueueCloudChunk(QByteArray chunk) {
 
     m_cloudSeconds += static_cast<double>(chunk.size()) /
                       static_cast<double>(kCloudInputSampleRate * 2);
-    m_costLabel->setText(QStringLiteral("Cloud cost: %1 s").arg(m_cloudSeconds, 0, 'f', 1));
     m_pendingCloudChunks.push_back(std::move(chunk));
+    m_costLabel->setText(
+        QStringLiteral("Character audio: %1 s | %2 waiting")
+            .arg(m_cloudSeconds, 0, 'f', 1)
+            .arg(static_cast<int>(m_pendingCloudChunks.size())));
     startNextCloudChunk();
 }
 
@@ -1416,10 +1547,14 @@ void LiveMicPanel::startNextCloudChunk() {
 
     auto chunk = std::move(m_pendingCloudChunks.front());
     m_pendingCloudChunks.pop_front();
-    auto* audioEngine = m_monitorCheck->isChecked() ? &m_audioEngine : nullptr;
+    m_costLabel->setText(
+        QStringLiteral("Character audio: %1 s | %2 waiting")
+            .arg(m_cloudSeconds, 0, 'f', 1)
+            .arg(static_cast<int>(m_pendingCloudChunks.size())));
+    const auto playbackTargets = currentPlaybackTargets();
     auto cancelFlag = m_cloudCancelFlag;
-    m_cloudWatcher->setFuture(QtConcurrent::run([voiceId, chunk, audioEngine, cancelFlag]() {
-        return convertCloudChunk(voiceId, chunk, audioEngine, cancelFlag);
+    m_cloudWatcher->setFuture(QtConcurrent::run([voiceId, chunk, playbackTargets, cancelFlag]() {
+        return convertCloudChunk(voiceId, chunk, playbackTargets, cancelFlag);
     }));
 }
 
@@ -1443,21 +1578,21 @@ void LiveMicPanel::startNextLocalRvcChunk() {
 
     auto chunk = std::move(m_pendingLocalRvcChunks.front());
     m_pendingLocalRvcChunks.pop_front();
-    auto* audioEngine = m_monitorCheck->isChecked() ? &m_audioEngine : nullptr;
+    const auto playbackTargets = currentPlaybackTargets();
     auto cancelFlag = m_localRvcCancelFlag;
     auto nativeEngine = m_nativeRvcEngine;
     if (nativeEngine != nullptr) {
         m_localRvcWatcher->setFuture(
-            QtConcurrent::run([nativeEngine, chunk, audioEngine, cancelFlag]() {
-                return convertNativeRvcChunk(nativeEngine, chunk, audioEngine, cancelFlag);
+            QtConcurrent::run([nativeEngine, chunk, playbackTargets, cancelFlag]() {
+                return convertNativeRvcChunk(nativeEngine, chunk, playbackTargets, cancelFlag);
             }));
         return;
     }
 
     const auto endpoint = m_rvcSidecar.status().endpoint;
     m_localRvcWatcher->setFuture(
-        QtConcurrent::run([endpoint, modelId, chunk, audioEngine, cancelFlag]() {
-            return convertLocalRvcChunk(endpoint, modelId, chunk, audioEngine, cancelFlag);
+        QtConcurrent::run([endpoint, modelId, chunk, playbackTargets, cancelFlag]() {
+            return convertLocalRvcChunk(endpoint, modelId, chunk, playbackTargets, cancelFlag);
         }));
 }
 
@@ -1590,6 +1725,24 @@ QString LiveMicPanel::currentRvcModelName() const {
 
 int LiveMicPanel::currentPitchShiftSemitones() const {
     return m_pitchSlider == nullptr ? 0 : m_pitchSlider->value();
+}
+
+PlaybackTargets LiveMicPanel::currentPlaybackTargets() noexcept {
+    PlaybackTargets targets;
+    if (m_monitorCheck != nullptr && m_monitorCheck->isChecked()) {
+        targets.monitor = &m_audioEngine;
+    }
+    if (m_broadcastButton != nullptr && m_broadcastButton->isChecked() &&
+        m_broadcastOutputDeviceCombo != nullptr &&
+        m_broadcastOutputDeviceCombo->currentIndex() >= 0) {
+        targets.broadcast = &m_broadcastAudioEngine;
+    }
+
+    if (targets.monitor != nullptr && targets.broadcast != nullptr &&
+        comboDeviceIndex(m_outputDeviceCombo) == comboDeviceIndex(m_broadcastOutputDeviceCombo)) {
+        targets.broadcast = nullptr;
+    }
+    return targets;
 }
 
 bool LiveMicPanel::ensureCaptureRunning() {

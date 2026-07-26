@@ -97,9 +97,10 @@ TEST_CASE("script repository persists imported lines and speaker mappings", "[db
     });
     REQUIRE(alice != characters.value().end());
     CHECK(alice->voiceId == "voice_alice");
+    const auto aliceId = alice->id;
 
     auto assignedRvc =
-        scriptRepository.updateCharacterRvcModel(projectRoot, alice->id, "hero_rvc");
+        scriptRepository.updateCharacterRvcModel(projectRoot, aliceId, "hero_rvc");
     REQUIRE(assignedRvc.hasValue());
     characters = scriptRepository.listCharacters(projectRoot);
     REQUIRE(characters.hasValue());
@@ -108,6 +109,27 @@ TEST_CASE("script repository persists imported lines and speaker mappings", "[db
     });
     REQUIRE(refreshedAlice != characters.value().end());
     CHECK(refreshedAlice->rvcModelId == "hero_rvc");
+
+    auto assignedVoice =
+        scriptRepository.updateCharacterVoice(projectRoot, aliceId, "");
+    const auto clearVoiceError =
+        assignedVoice.hasValue() ? std::string{} : assignedVoice.error().message;
+    INFO(clearVoiceError);
+    REQUIRE(assignedVoice.hasValue());
+    characters = scriptRepository.listCharacters(projectRoot);
+    REQUIRE(characters.hasValue());
+    const auto unassignedAlice = std::ranges::find_if(characters.value(), [](const auto& character) {
+        return character.name == "Alice";
+    });
+    REQUIRE(unassignedAlice != characters.value().end());
+    CHECK(unassignedAlice->voiceId.empty());
+
+    assignedVoice =
+        scriptRepository.updateCharacterVoice(projectRoot, aliceId, "voice_alice");
+    const auto assignVoiceError =
+        assignedVoice.hasValue() ? std::string{} : assignedVoice.error().message;
+    INFO(assignVoiceError);
+    REQUIRE(assignedVoice.hasValue());
 
     auto refreshedProject = projectRepository.openProject(projectRoot);
     REQUIRE(refreshedProject.hasValue());

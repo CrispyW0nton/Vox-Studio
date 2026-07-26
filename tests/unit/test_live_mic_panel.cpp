@@ -65,6 +65,9 @@ void LiveMicPanelTest::exposesLiveMicControlsAndLatencyProbe() {
     QVERIFY(inputCombo != nullptr);
     auto* outputCombo = panel.findChild<QComboBox*>(QStringLiteral("LiveMicOutputCombo"));
     QVERIFY(outputCombo != nullptr);
+    auto* broadcastOutputCombo =
+        panel.findChild<QComboBox*>(QStringLiteral("LiveMicBroadcastOutputCombo"));
+    QVERIFY(broadcastOutputCombo != nullptr);
 
     auto* modeCombo = panel.findChild<QComboBox*>(QStringLiteral("LiveMicModeCombo"));
     QVERIFY(modeCombo != nullptr);
@@ -88,6 +91,10 @@ void LiveMicPanelTest::exposesLiveMicControlsAndLatencyProbe() {
     auto* hearButton = panel.findChild<QPushButton*>(QStringLiteral("LiveMicHearButton"));
     QVERIFY(hearButton != nullptr);
     QVERIFY(hearButton->isChecked());
+    auto* broadcastButton =
+        panel.findChild<QPushButton*>(QStringLiteral("LiveMicBroadcastButton"));
+    QVERIFY(broadcastButton != nullptr);
+    QVERIFY(broadcastButton->isCheckable());
 
     auto* gainSlider = panel.findChild<QSlider*>(QStringLiteral("LiveMicGainSlider"));
     QVERIFY(gainSlider != nullptr);
@@ -144,7 +151,7 @@ void LiveMicPanelTest::exposesLiveMicControlsAndLatencyProbe() {
 
     auto* costLabel = panel.findChild<QLabel*>(QStringLiteral("LiveMicCostLabel"));
     QVERIFY(costLabel != nullptr);
-    QVERIFY(costLabel->text().contains(QStringLiteral("Cloud cost")));
+    QVERIFY(costLabel->text().contains(QStringLiteral("Character audio")));
 
     auto* selectedVoice =
         panel.findChild<QLabel*>(QStringLiteral("LiveMicSelectedVoiceName"));

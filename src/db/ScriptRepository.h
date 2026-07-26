@@ -68,6 +68,11 @@ public:
                             const std::string& voiceSettingsJson) const;
 
     [[nodiscard]] core::Expected<bool>
+    updateCharacterVoice(const std::filesystem::path& projectRoot,
+                         const std::string& characterId,
+                         const std::string& voiceId) const;
+
+    [[nodiscard]] core::Expected<bool>
     updateCharacterRvcModel(const std::filesystem::path& projectRoot,
                             const std::string& characterId,
                             const std::string& rvcModelId) const;

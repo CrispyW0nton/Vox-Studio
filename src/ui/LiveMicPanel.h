@@ -55,6 +55,11 @@ struct LocalRvcConversionResult final {
     int channels{1};
 };
 
+struct PlaybackTargets final {
+    audio::AudioEngine* monitor{nullptr};
+    audio::AudioEngine* broadcast{nullptr};
+};
+
 class LiveMicPanel final : public QWidget {
     Q_OBJECT
 
@@ -77,6 +82,7 @@ private:
     void updateGain(int value);
     void updateVoiceFx();
     void updateOutputRoute(int index);
+    void setBroadcastChecked(bool enabled);
     void toggleVoiceChangerPower();
     void selectQuickVoiceSlot();
     void updateVoiceHud();
@@ -105,9 +111,11 @@ private:
     [[nodiscard]] QString currentRvcModelName() const;
     [[nodiscard]] int currentPitchShiftSemitones() const;
     [[nodiscard]] bool ensureCaptureRunning();
+    [[nodiscard]] PlaybackTargets currentPlaybackTargets() noexcept;
 
     audio::Capture m_capture;
     audio::AudioEngine m_audioEngine;
+    audio::AudioEngine m_broadcastAudioEngine;
     audio::LatencyProbe m_latencyProbe;
     db::VoiceRepository m_voiceRepository;
     rvc::RvcModelRegistry m_rvcModelRegistry;
@@ -134,6 +142,7 @@ private:
     bool m_localRvcActive{false};
     QComboBox* m_inputDeviceCombo{nullptr};
     QComboBox* m_outputDeviceCombo{nullptr};
+    QComboBox* m_broadcastOutputDeviceCombo{nullptr};
     QComboBox* m_modeCombo{nullptr};
     QComboBox* m_voiceCombo{nullptr};
     QComboBox* m_rvcModelCombo{nullptr};
@@ -164,6 +173,7 @@ private:
     QPushButton* m_latencyButton{nullptr};
     QPushButton* m_voicePowerButton{nullptr};
     QPushButton* m_monitorButton{nullptr};
+    QPushButton* m_broadcastButton{nullptr};
     QPushButton* m_cloudButton{nullptr};
     QPushButton* m_cancelCloudButton{nullptr};
     QPushButton* m_localRvcButton{nullptr};

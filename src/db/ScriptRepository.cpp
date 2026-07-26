@@ -367,6 +367,33 @@ ScriptRepository::updateLineVoiceSettings(const std::filesystem::path& projectRo
 }
 
 core::Expected<bool>
+ScriptRepository::updateCharacterVoice(const std::filesystem::path& projectRoot,
+                                       const std::string& characterId,
+                                       const std::string& voiceId) const {
+    if (characterId.empty()) {
+        return core::makeError(core::ErrorCode::InvalidArgument,
+                               "Character id must not be empty.");
+    }
+
+    auto database = openScriptDatabase(projectRoot);
+    if (!database) {
+        return database.error();
+    }
+
+    try {
+        SQLite::Statement statement{
+            database.value().connection(),
+            "UPDATE characters SET voice_id = ? WHERE id = ?;"};
+        bindNullableString(statement, 1, voiceId);
+        statement.bind(2, characterId);
+        statement.exec();
+        return true;
+    } catch (const SQLite::Exception& exception) {
+        return core::makeError(core::ErrorCode::DatabaseQueryFailed, exception.what());
+    }
+}
+
+core::Expected<bool>
 ScriptRepository::updateCharacterRvcModel(const std::filesystem::path& projectRoot,
                                           const std::string& characterId,
                                           const std::string& rvcModelId) const {

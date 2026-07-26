@@ -90,6 +90,23 @@ Open **Settings**, enter your ElevenLabs API key, click **Save**, then use
 **Test Connection**. The key is stored with Windows DPAPI in the current user's
 profile.
 
+Use **Voices** to sync or clone a voice, then select **Assign to Character** to
+attach it to a character imported from a script. Vox Studio stores the voice
+identity and project assignment locally; ElevenLabs does not make its trained
+voice model weights exportable.
+
+In **Live Mic**, **Perform as Voice** captures complete spoken phrases and sends
+them to ElevenLabs Voice Changer so timing, delivery, and emotion come from the
+actor's microphone performance. Converted phrases can be monitored through
+headphones and sent independently to a virtual audio line using **Voice
+output** and **Broadcast**. Select the matching virtual microphone endpoint in
+OBS, a game, or chat software.
+
+ElevenLabs speech-to-speech is a request/response service, so this mode has a
+phrase-length plus network delay. It is intended for performance capture and
+review, not zero-latency conversation. Use a properly trained local RVC model
+for immediate live conversion.
+
 ## RVC Status
 
 There are two local RVC modes in the UI:

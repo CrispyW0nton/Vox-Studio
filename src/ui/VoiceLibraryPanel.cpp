@@ -8,6 +8,7 @@
 #include <QDialogButtonBox>
 #include <QFutureWatcher>
 #include <QHBoxLayout>
+#include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -329,6 +330,9 @@ VoiceLibraryPanel::VoiceLibraryPanel(QWidget* parent)
     m_refreshButton = addOwnedWidget<QPushButton>(*buttonLayout, QStringLiteral("Refresh"));
     m_cloneButton = addOwnedWidget<QPushButton>(*buttonLayout, QStringLiteral("Clone New Voice"));
     m_previewButton = addOwnedWidget<QPushButton>(*buttonLayout, QStringLiteral("Preview"));
+    m_assignButton =
+        addOwnedWidget<QPushButton>(*buttonLayout, QStringLiteral("Assign to Character"));
+    m_assignButton->setObjectName(QStringLiteral("VoiceLibraryAssignButton"));
     m_editButton = addOwnedWidget<QPushButton>(*buttonLayout, QStringLiteral("Edit"));
     m_deleteButton = addOwnedWidget<QPushButton>(*buttonLayout, QStringLiteral("Delete"));
     rootLayout->addLayout(buttonLayout.release());
@@ -344,6 +348,10 @@ VoiceLibraryPanel::VoiceLibraryPanel(QWidget* parent)
     connect(m_refreshButton, &QPushButton::clicked, this, &VoiceLibraryPanel::refreshVoices);
     connect(m_cloneButton, &QPushButton::clicked, this, &VoiceLibraryPanel::cloneVoice);
     connect(m_previewButton, &QPushButton::clicked, this, &VoiceLibraryPanel::previewSelectedVoice);
+    connect(m_assignButton,
+            &QPushButton::clicked,
+            this,
+            &VoiceLibraryPanel::assignSelectedVoiceToCharacter);
     connect(m_editButton, &QPushButton::clicked, this, &VoiceLibraryPanel::editSelectedVoice);
     connect(m_deleteButton, &QPushButton::clicked, this, &VoiceLibraryPanel::deleteSelectedVoice);
     connect(m_voiceTaskWatcher.get(), &QFutureWatcher<VoiceLibraryTaskResult>::finished, this,
@@ -479,6 +487,63 @@ void VoiceLibraryPanel::previewSelectedVoice() {
     }));
 }
 
+void VoiceLibraryPanel::assignSelectedVoiceToCharacter() {
+    const auto voice = selectedVoice();
+    if (!m_project.has_value() || !voice.has_value()) {
+        m_statusLabel->setText(QStringLiteral("Select a voice to assign."));
+        return;
+    }
+
+    auto characters = m_scriptRepository.listCharacters(m_project->rootPath());
+    if (!characters) {
+        m_statusLabel->setText(QString::fromStdString(characters.error().message));
+        return;
+    }
+    if (characters.value().empty()) {
+        m_statusLabel->setText(
+            QStringLiteral("Import a script to create characters, then assign this voice."));
+        return;
+    }
+
+    QStringList characterNames;
+    characterNames.reserve(static_cast<qsizetype>(characters.value().size()));
+    for (const auto& character : characters.value()) {
+        characterNames.push_back(QString::fromStdString(character.name));
+    }
+
+    bool accepted = false;
+    const auto selectedName = QInputDialog::getItem(
+        this,
+        QStringLiteral("Assign Character Voice"),
+        QStringLiteral("Character"),
+        characterNames,
+        0,
+        false,
+        &accepted);
+    if (!accepted || selectedName.isEmpty()) {
+        return;
+    }
+
+    const auto selectedIndex = characterNames.indexOf(selectedName);
+    if (selectedIndex < 0) {
+        return;
+    }
+
+    auto assigned = m_scriptRepository.updateCharacterVoice(
+        m_project->rootPath(),
+        characters.value()[static_cast<std::size_t>(selectedIndex)].id,
+        voice->voiceId);
+    if (!assigned) {
+        m_statusLabel->setText(QString::fromStdString(assigned.error().message));
+        return;
+    }
+
+    m_statusLabel->setText(
+        QStringLiteral("%1 is now the ElevenLabs performance voice for %2.")
+            .arg(QString::fromStdString(voice->name), selectedName));
+    emit voiceCacheChanged();
+}
+
 void VoiceLibraryPanel::finishVoiceTask() {
     const auto result = m_voiceTaskWatcher->result();
     setBusy(false);
@@ -514,6 +579,7 @@ void VoiceLibraryPanel::setBusy(const bool isBusy) {
     m_refreshButton->setEnabled(hasProject && !isBusy);
     m_cloneButton->setEnabled(hasProject && !isBusy);
     m_previewButton->setEnabled(hasProject && !isBusy);
+    m_assignButton->setEnabled(hasProject && !isBusy);
     m_editButton->setEnabled(hasProject && !isBusy);
     m_deleteButton->setEnabled(hasProject && !isBusy);
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "audio/Capture.h"
+#include "audio/SpeechPhraseBuffer.h"
 #include "dsp/NoiseSuppressor.h"
 #include "dsp/Vad.h"
 
@@ -36,7 +37,7 @@ signals:
 
 private:
     void processOnce();
-    void appendCloudFrame(const audio::AudioFrame& frame);
+    void appendCloudFrame(const audio::AudioFrame& frame, bool speechActive);
     void appendLocalRvcFrame(const audio::AudioFrame& frame);
     void emitCloudChunk();
     void emitLocalRvcChunk();
@@ -45,7 +46,7 @@ private:
     dsp::NoiseSuppressor m_noiseSuppressor;
     dsp::Vad m_vad;
     std::unique_ptr<QTimer> m_timer;
-    QByteArray m_cloudPcmBuffer;
+    audio::SpeechPhraseBuffer m_cloudPhraseBuffer;
     QByteArray m_localRvcPcmBuffer;
     bool m_passthroughEnabled{true};
     bool m_cloudCaptureEnabled{false};
