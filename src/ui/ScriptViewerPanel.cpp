@@ -14,6 +14,7 @@
 #include <QComboBox>
 #include <QDialog>
 #include <QDoubleSpinBox>
+#include <QDir>
 #include <QEvent>
 #include <QFileDialog>
 #include <QGridLayout>
@@ -22,6 +23,7 @@
 #include <QLabel>
 #include <QListWidget>
 #include <QMessageBox>
+#include <QProcess>
 #include <QPushButton>
 #include <QVBoxLayout>
 #include <QtConcurrent/QtConcurrentRun>
@@ -110,7 +112,7 @@ template <typename TWidget, typename... TArgs>
     net::elevenlabs::TtsRequest request;
     request.voiceId = line.voiceId;
     request.text = line.text;
-    request.outputFormat = "pcm_44100";
+    request.outputFormat = "pcm_24000";
     request.voiceSettings = settings;
 
     const auto sampleRate = net::elevenlabs::pcmSampleRateFromOutputFormat(request.outputFormat);
@@ -247,6 +249,8 @@ ScriptViewerPanel::ScriptViewerPanel(QWidget* parent)
             &ScriptViewerPanel::playTake);
     connect(m_takeListWidget, &TakeListWidget::starTakeRequested, this,
             &ScriptViewerPanel::starTake);
+    connect(m_takeListWidget, &TakeListWidget::revealTakeRequested, this,
+            &ScriptViewerPanel::revealTake);
     connect(m_takeListWidget, &TakeListWidget::deleteTakeRequested, this,
             &ScriptViewerPanel::deleteTake);
 
@@ -563,6 +567,27 @@ void ScriptViewerPanel::starTake(db::TakeRecord take) {
     }
     loadCurrentLineTakes();
     m_statusLabel->setText(QStringLiteral("Active take updated."));
+}
+
+void ScriptViewerPanel::revealTake(db::TakeRecord take) {
+    if (!m_project.has_value()) {
+        return;
+    }
+
+    const auto absolutePath = m_project->rootPath() / std::filesystem::path{take.filePath};
+    if (!std::filesystem::exists(absolutePath)) {
+        m_statusLabel->setText(QStringLiteral("The take audio file no longer exists."));
+        return;
+    }
+
+    const auto path = QString::fromStdWString(absolutePath.wstring());
+    if (!QProcess::startDetached(QStringLiteral("explorer.exe"),
+                                 {QStringLiteral("/select,"),
+                                  QDir::toNativeSeparators(path)})) {
+        m_statusLabel->setText(QStringLiteral("Unable to open File Explorer."));
+        return;
+    }
+    m_statusLabel->setText(QStringLiteral("Opened take in File Explorer."));
 }
 
 void ScriptViewerPanel::deleteTake(db::TakeRecord take) {

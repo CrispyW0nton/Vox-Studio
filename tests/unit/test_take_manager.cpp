@@ -106,6 +106,13 @@ TEST_CASE("take manager stores Opus takes and restores active take", "[core][tak
     REQUIRE(takes.value().size() == 1);
     CHECK(takes.value().front().id == savedTake.value().take.id);
     CHECK(takes.value().front().starred);
+    CHECK(takes.value().front().characterName == "Alice");
+    CHECK(takes.value().front().lineText == imported.value().lines.front().text);
+
+    auto recentTakes = takeRepository.listRecentTakes(projectRoot);
+    REQUIRE(recentTakes.hasValue());
+    REQUIRE(recentTakes.value().size() == 1);
+    CHECK(recentTakes.value().front().id == savedTake.value().take.id);
 
     auto lines = scriptRepository.listLines(projectRoot, imported.value().script.id);
     REQUIRE(lines.hasValue());

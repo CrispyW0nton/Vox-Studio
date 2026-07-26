@@ -25,9 +25,17 @@ template <typename TWidget, typename... TArgs>
 [[nodiscard]] QString takeText(const db::TakeRecord& take, const int index) {
     const auto seconds = take.durationMs / 1000.0;
     const auto star = take.starred ? QStringLiteral("* ") : QString{};
-    return QStringLiteral("%1Take %2  %3s")
-        .arg(star)
-        .arg(index + 1)
+    const auto character = take.characterName.empty()
+                               ? QStringLiteral("Character")
+                               : QString::fromStdString(take.characterName);
+    auto line = QString::fromStdString(take.lineText).simplified();
+    if (line.isEmpty()) {
+        line = QStringLiteral("Take %1").arg(index + 1);
+    } else if (line.size() > 72) {
+        line = line.left(69) + QStringLiteral("...");
+    }
+    return QStringLiteral("%1%2 | %3\n%4 | %5s")
+        .arg(star, character, line, QString::fromStdString(take.source))
         .arg(seconds, 0, 'f', 1);
 }
 
@@ -38,13 +46,18 @@ TakeListWidget::TakeListWidget(QWidget* parent)
     auto rootLayout = std::make_unique<QVBoxLayout>();
     rootLayout->setContentsMargins(0, 0, 0, 0);
 
-    auto* title = addOwnedWidget<QLabel>(*rootLayout, QStringLiteral("Takes"));
-    title->setObjectName(QStringLiteral("TakeListTitle"));
+    m_titleLabel = addOwnedWidget<QLabel>(*rootLayout, QStringLiteral("Takes"));
+    m_titleLabel->setObjectName(QStringLiteral("TakeListTitle"));
 
     auto buttons = std::make_unique<QHBoxLayout>();
     m_playButton = addOwnedWidget<QPushButton>(*buttons, QStringLiteral("Play"));
     m_starButton = addOwnedWidget<QPushButton>(*buttons, QStringLiteral("Star"));
+    m_revealButton = addOwnedWidget<QPushButton>(*buttons, QStringLiteral("Open in Explorer"));
     m_deleteButton = addOwnedWidget<QPushButton>(*buttons, QStringLiteral("Delete"));
+    m_playButton->setObjectName(QStringLiteral("TakePlayButton"));
+    m_starButton->setObjectName(QStringLiteral("TakeStarButton"));
+    m_revealButton->setObjectName(QStringLiteral("TakeRevealButton"));
+    m_deleteButton->setObjectName(QStringLiteral("TakeDeleteButton"));
     rootLayout->addLayout(buttons.release());
 
     m_takeList = addOwnedWidget<QListWidget>(*rootLayout);
@@ -59,8 +72,15 @@ TakeListWidget::TakeListWidget(QWidget* parent)
 
     connect(m_playButton, &QPushButton::clicked, this, &TakeListWidget::playSelectedTake);
     connect(m_starButton, &QPushButton::clicked, this, &TakeListWidget::starSelectedTake);
+    connect(m_revealButton, &QPushButton::clicked, this, &TakeListWidget::revealSelectedTake);
     connect(m_deleteButton, &QPushButton::clicked, this, &TakeListWidget::deleteSelectedTake);
+    connect(m_takeList, &QListWidget::itemDoubleClicked, this,
+            [this](QListWidgetItem*) { playSelectedTake(); });
     refreshList();
+}
+
+void TakeListWidget::setTitle(const QString& title) {
+    m_titleLabel->setText(title);
 }
 
 void TakeListWidget::setTakes(std::vector<db::TakeRecord> takes) {
@@ -88,6 +108,15 @@ void TakeListWidget::starSelectedTake() {
         return;
     }
     emit starTakeRequested(*take);
+}
+
+void TakeListWidget::revealSelectedTake() {
+    const auto* take = selectedTake();
+    if (take == nullptr) {
+        m_statusLabel->setText(QStringLiteral("Select a take to open."));
+        return;
+    }
+    emit revealTakeRequested(*take);
 }
 
 void TakeListWidget::deleteSelectedTake() {
@@ -126,19 +155,24 @@ void TakeListWidget::refreshList() {
             takeText(m_takes[static_cast<std::size_t>(index)], index));
         item->setData(Qt::UserRole,
                       QString::fromStdString(m_takes[static_cast<std::size_t>(index)].id));
-        if (m_takes[static_cast<std::size_t>(index)].starred) {
-            item->setSelected(true);
-        }
+        item->setToolTip(
+            QStringLiteral("%1\n%2")
+                .arg(QString::fromStdString(m_takes[static_cast<std::size_t>(index)].createdAt),
+                     QString::fromStdString(m_takes[static_cast<std::size_t>(index)].filePath)));
         m_takeList->addItem(item.release());
     }
 
     const bool hasTakes = !m_takes.empty();
+    if (hasTakes) {
+        m_takeList->setCurrentRow(0);
+    }
     m_playButton->setEnabled(hasTakes);
     m_starButton->setEnabled(hasTakes);
+    m_revealButton->setEnabled(hasTakes);
     m_deleteButton->setEnabled(hasTakes);
     m_statusLabel->setText(
         hasTakes ? QStringLiteral("%1 takes.").arg(static_cast<int>(m_takes.size()))
-                 : QStringLiteral("No takes for this line yet."));
+                 : QStringLiteral("No takes yet."));
 }
 
 } // namespace voxstudio::ui

@@ -2,6 +2,7 @@
 
 #include "db/TakeRepository.h"
 
+#include <QString>
 #include <QWidget>
 
 #include <vector>
@@ -18,17 +19,20 @@ class TakeListWidget final : public QWidget {
 public:
     explicit TakeListWidget(QWidget* parent = nullptr);
 
+    void setTitle(const QString& title);
     void setTakes(std::vector<db::TakeRecord> takes);
     [[nodiscard]] std::vector<db::TakeRecord> takes() const;
 
 signals:
     void playTakeRequested(db::TakeRecord take);
     void starTakeRequested(db::TakeRecord take);
+    void revealTakeRequested(db::TakeRecord take);
     void deleteTakeRequested(db::TakeRecord take);
 
 private:
     void playSelectedTake();
     void starSelectedTake();
+    void revealSelectedTake();
     void deleteSelectedTake();
     [[nodiscard]] db::TakeRecord* selectedTake();
     [[nodiscard]] const db::TakeRecord* selectedTake() const;
@@ -36,9 +40,11 @@ private:
 
     std::vector<db::TakeRecord> m_takes;
     QListWidget* m_takeList{nullptr};
+    QLabel* m_titleLabel{nullptr};
     QLabel* m_statusLabel{nullptr};
     QPushButton* m_playButton{nullptr};
     QPushButton* m_starButton{nullptr};
+    QPushButton* m_revealButton{nullptr};
     QPushButton* m_deleteButton{nullptr};
 };
 

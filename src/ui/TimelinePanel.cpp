@@ -81,7 +81,7 @@ generateLineTts(const std::string& apiKey, const core::SequenceLine& line) {
     net::elevenlabs::TtsRequest request;
     request.voiceId = line.voiceId;
     request.text = line.text;
-    request.outputFormat = "pcm_44100";
+    request.outputFormat = "pcm_24000";
 
     const net::elevenlabs::TtsApi api{apiKey};
     auto streamed = api.streamSpeech(request, {});

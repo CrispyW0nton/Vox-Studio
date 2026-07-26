@@ -20,6 +20,8 @@ struct TakeRecord final {
     bool starred{false};
     std::string createdAt;
     std::string metadataJson;
+    std::string lineText;
+    std::string characterName;
 };
 
 struct NewTakeRecord final {
@@ -41,6 +43,9 @@ public:
 
     [[nodiscard]] core::Expected<std::vector<TakeRecord>>
     listTakes(const std::filesystem::path& projectRoot, const std::string& lineId) const;
+
+    [[nodiscard]] core::Expected<std::vector<TakeRecord>>
+    listRecentTakes(const std::filesystem::path& projectRoot, int limit = 50) const;
 
     [[nodiscard]] core::Expected<TakeRecord>
     insertTake(const std::filesystem::path& projectRoot, const NewTakeRecord& take) const;

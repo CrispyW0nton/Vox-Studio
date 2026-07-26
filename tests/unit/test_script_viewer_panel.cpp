@@ -113,6 +113,10 @@ void ScriptViewerPanelTest::loadsLinesAndHandlesKeyboardNavigation() {
     auto* takeList = panel.findChild<QListWidget*>(QStringLiteral("TakeList"));
     QVERIFY(takeList != nullptr);
     QCOMPARE(takeList->count(), 0);
+    auto* revealTakeButton =
+        panel.findChild<QPushButton*>(QStringLiteral("TakeRevealButton"));
+    QVERIFY(revealTakeButton != nullptr);
+    QVERIFY(!revealTakeButton->isEnabled());
 
     lineList->setFocus();
     QTest::keyClick(lineList, Qt::Key_Down);

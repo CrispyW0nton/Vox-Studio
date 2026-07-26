@@ -375,6 +375,8 @@ if(BUILD_TESTING)
         src/ui/LiveMicPanel.h
         src/ui/RvcModelManagerDialog.cpp
         src/ui/RvcModelManagerDialog.h
+        src/ui/TakeListWidget.cpp
+        src/ui/TakeListWidget.h
     )
     target_include_directories(VoxStudioLiveMicQtTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_link_libraries(

@@ -72,6 +72,7 @@ private:
     void confirmCurrentLine();
     void playTake(db::TakeRecord take);
     void starTake(db::TakeRecord take);
+    void revealTake(db::TakeRecord take);
     void deleteTake(db::TakeRecord take);
     void applyLineSettingsToControls(const db::ScriptLineRecord& line);
     [[nodiscard]] core::VoiceSettings currentVoiceSettings() const;

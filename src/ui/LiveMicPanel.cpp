@@ -7,9 +7,11 @@
 #include "secrets/DpapiVault.h"
 #include "ui/LiveAudioProcessor.h"
 #include "ui/RvcModelManagerDialog.h"
+#include "ui/TakeListWidget.h"
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDir>
 #include <QFrame>
 #include <QGridLayout>
 #include <QGroupBox>
@@ -17,7 +19,9 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMetaObject>
+#include <QMessageBox>
 #include <QProgressBar>
+#include <QProcess>
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QSizePolicy>
@@ -193,7 +197,7 @@ void queuePcmForTargets(const PlaybackTargets& targets,
     net::elevenlabs::StsRequest request;
     request.voiceId = voiceId;
     request.pcm16Audio = bytesFromByteArray(inputPcmBytes);
-    request.outputFormat = "pcm_44100";
+    request.outputFormat = "pcm_24000";
     const auto outputSampleRate =
         net::elevenlabs::pcmSampleRateFromOutputFormat(request.outputFormat);
 
@@ -223,7 +227,8 @@ void queuePcmForTargets(const PlaybackTargets& targets,
                                  QStringLiteral("Character phrase converted."),
                                  playbackWarning,
                                  byteArrayFromBytes(streamed.value().audioBytes),
-                                 streamed.value().inputSeconds};
+                                 streamed.value().inputSeconds,
+                                 outputSampleRate};
 }
 
 [[nodiscard]] LocalRvcConversionResult convertLocalRvcChunk(
@@ -450,7 +455,14 @@ LiveMicPanel::LiveMicPanel(QWidget* parent)
     m_monitorButton->setCheckable(true);
     m_monitorButton->setChecked(false);
     m_monitorButton->setToolTip(
-        QStringLiteral("Toggle monitoring through the selected output device."));
+        QStringLiteral("Play changed character phrases through the selected headphones."));
+    m_liveInputButton =
+        addOwnedWidget<QPushButton>(*transportLayout, QStringLiteral("Live Input On"));
+    m_liveInputButton->setObjectName(QStringLiteral("LiveMicInputMonitorButton"));
+    m_liveInputButton->setCheckable(true);
+    m_liveInputButton->setChecked(true);
+    m_liveInputButton->setToolTip(
+        QStringLiteral("Hear your unchanged microphone while recording a performance."));
     m_broadcastButton =
         addOwnedWidget<QPushButton>(*transportLayout, QStringLiteral("Broadcast Off"));
     m_broadcastButton->setObjectName(QStringLiteral("LiveMicBroadcastButton"));
@@ -508,6 +520,12 @@ LiveMicPanel::LiveMicPanel(QWidget* parent)
     advancedLayout->addWidget(m_cancelLocalRvcButton, 2, 1);
     advancedGroup->setLayout(advancedLayout.release());
     centerLayout->addWidget(advancedGroup.release());
+
+    auto recentTakes = std::make_unique<TakeListWidget>(this);
+    recentTakes->setObjectName(QStringLiteral("LiveMicRecentTakes"));
+    recentTakes->setTitle(QStringLiteral("Recent Takes"));
+    m_recentTakesWidget = recentTakes.get();
+    centerLayout->addWidget(recentTakes.release(), 1);
     centerLayout->addStretch(1);
     mainLayout->addLayout(centerLayout.release(), 1);
 
@@ -600,6 +618,8 @@ LiveMicPanel::LiveMicPanel(QWidget* parent)
     connect(m_refreshButton, &QPushButton::clicked, this, &LiveMicPanel::refreshDevices);
     connect(m_monitorCheck, &QCheckBox::toggled, this, &LiveMicPanel::toggleMonitor);
     connect(m_monitorButton, &QPushButton::toggled, this, &LiveMicPanel::setHearSelfChecked);
+    connect(m_liveInputButton, &QPushButton::toggled, this,
+            &LiveMicPanel::setLiveInputChecked);
     connect(m_broadcastButton, &QPushButton::toggled, this, &LiveMicPanel::setBroadcastChecked);
     connect(m_voicePowerButton, &QPushButton::clicked, this,
             &LiveMicPanel::toggleVoiceChangerPower);
@@ -645,6 +665,14 @@ LiveMicPanel::LiveMicPanel(QWidget* parent)
             &LiveMicPanel::cancelLocalRvcConversion);
     connect(m_manageRvcModelsButton, &QPushButton::clicked, this,
             &LiveMicPanel::openRvcModelManager);
+    connect(m_recentTakesWidget, &TakeListWidget::playTakeRequested, this,
+            &LiveMicPanel::playTake);
+    connect(m_recentTakesWidget, &TakeListWidget::starTakeRequested, this,
+            &LiveMicPanel::starTake);
+    connect(m_recentTakesWidget, &TakeListWidget::revealTakeRequested, this,
+            &LiveMicPanel::revealTake);
+    connect(m_recentTakesWidget, &TakeListWidget::deleteTakeRequested, this,
+            &LiveMicPanel::deleteTake);
     connect(m_cloudWatcher.get(), &QFutureWatcher<CloudConversionResult>::finished, this,
             &LiveMicPanel::finishCloudConversion);
     connect(m_localRvcWatcher.get(),
@@ -711,6 +739,7 @@ void LiveMicPanel::setProject(std::optional<core::Project> project) {
     m_recordingLineText.clear();
     refreshVoices();
     refreshRvcModels();
+    refreshRecentTakes();
 }
 
 void LiveMicPanel::refreshDevices() {
@@ -1042,12 +1071,21 @@ void LiveMicPanel::updateVoiceHud() {
 void LiveMicPanel::updateTransportState() {
     if (m_voicePowerButton != nullptr) {
         const QSignalBlocker blocker{m_voicePowerButton};
+        const bool micCheckMode =
+            m_modeCombo != nullptr &&
+            m_modeCombo->currentText() == QStringLiteral("Mic Check");
         const bool microphoneCheckActive =
-            !m_cloudActive && !m_localRvcActive && m_capture.stats().running;
+            micCheckMode && !m_cloudActive && !m_localRvcActive && m_capture.stats().running;
         const bool powerActive = m_cloudActive || m_localRvcActive || microphoneCheckActive;
         m_voicePowerButton->setChecked(powerActive);
         m_voicePowerButton->setText(powerActive ? QStringLiteral("On")
                                                  : QStringLiteral("Power"));
+    }
+    if (m_liveInputButton != nullptr) {
+        const QSignalBlocker blocker{m_liveInputButton};
+        m_liveInputButton->setText(m_liveInputButton->isChecked()
+                                       ? QStringLiteral("Live Input On")
+                                       : QStringLiteral("Live Input Off"));
     }
     if (m_monitorButton != nullptr && m_monitorCheck != nullptr) {
         const QSignalBlocker blocker{m_monitorButton};
@@ -1084,8 +1122,6 @@ void LiveMicPanel::setHearSelfChecked(const bool enabled) {
     }
 
     if (m_cloudActive || m_localRvcActive) {
-        m_capture.setMonitorEnabled(false);
-        setProcessorPassthrough(false, Qt::QueuedConnection);
         if (!enabled) {
             m_audioEngine.clear();
             setStatusText(QStringLiteral("Converted monitoring muted."));
@@ -1107,6 +1143,25 @@ void LiveMicPanel::setHearSelfChecked(const bool enabled) {
     setStatusText(enabled
                       ? QStringLiteral("Changed-voice playback is armed for the next performance.")
                       : QStringLiteral("Changed-voice playback muted."));
+    updateTransportState();
+}
+
+void LiveMicPanel::setLiveInputChecked(const bool enabled) {
+    if (m_liveInputButton != nullptr) {
+        const QSignalBlocker blocker{m_liveInputButton};
+        m_liveInputButton->setChecked(enabled);
+    }
+
+    if (m_cloudActive || m_localRvcActive) {
+        m_capture.setMonitorEnabled(enabled);
+        setProcessorPassthrough(enabled, Qt::QueuedConnection);
+        setStatusText(enabled
+                          ? QStringLiteral("Live input monitor enabled; changed phrases remain audible.")
+                          : QStringLiteral("Live input monitor muted; changed phrases remain audible."));
+    } else {
+        setStatusText(enabled ? QStringLiteral("Live input monitor will stay on while recording.")
+                              : QStringLiteral("Live input monitor will stay muted while recording."));
+    }
     updateTransportState();
 }
 
@@ -1161,10 +1216,14 @@ void LiveMicPanel::toggleCloudConversion() {
         m_cloudButton->setText(QStringLiteral("Record Performance"));
         m_cancelCloudButton->setEnabled(false);
         setProcessorCloudCapture(false, Qt::BlockingQueuedConnection);
-        m_capture.setMonitorEnabled(false);
-        setProcessorPassthrough(false, Qt::QueuedConnection);
-        stopAudioProcessor(Qt::BlockingQueuedConnection);
-        m_capture.stop();
+        const bool keepLiveInput =
+            m_liveInputButton != nullptr && m_liveInputButton->isChecked();
+        m_capture.setMonitorEnabled(keepLiveInput);
+        setProcessorPassthrough(keepLiveInput, Qt::QueuedConnection);
+        if (!keepLiveInput) {
+            stopAudioProcessor(Qt::BlockingQueuedConnection);
+            m_capture.stop();
+        }
         setStatusText(QStringLiteral("Finishing the last character phrase."));
         updateTransportState();
         saveCloudRecordingIfReady();
@@ -1186,17 +1245,23 @@ void LiveMicPanel::toggleCloudConversion() {
     m_cloudCancelFlag = std::make_shared<std::atomic_bool>(false);
     m_pendingCloudChunks.clear();
     m_recordedCloudPcm.clear();
+    m_cloudOutputSampleRate = 24000;
     m_cloudSeconds = 0.0;
     m_costLabel->setText(QStringLiteral("Character audio: 0.0 s"));
     m_cloudActive = true;
     m_cloudButton->setText(QStringLiteral("Stop & Save"));
     m_cancelCloudButton->setEnabled(true);
     m_modeCombo->setCurrentText(QStringLiteral("Performance"));
-    m_capture.setMonitorEnabled(false);
-    setProcessorPassthrough(false, Qt::BlockingQueuedConnection);
+    const bool liveInput = m_liveInputButton != nullptr && m_liveInputButton->isChecked();
+    m_capture.setMonitorEnabled(liveInput);
+    setProcessorPassthrough(liveInput, Qt::BlockingQueuedConnection);
     setProcessorCloudCapture(true, Qt::BlockingQueuedConnection);
     setStatusText(
-        QStringLiteral("Performance active. Speak naturally; conversion begins after each pause."));
+        liveInput
+            ? QStringLiteral(
+                  "Performance active. Live input is on; the character plays after each pause.")
+            : QStringLiteral(
+                  "Performance active. Speak naturally; the character plays after each pause."));
     updateTransportState();
 }
 
@@ -1213,10 +1278,14 @@ void LiveMicPanel::cancelCloudConversion() {
         setProcessorCloudCapture(false, Qt::BlockingQueuedConnection);
     }
     if (!m_localRvcActive) {
-        m_capture.setMonitorEnabled(false);
-        setProcessorPassthrough(false, Qt::QueuedConnection);
-        stopAudioProcessor(Qt::BlockingQueuedConnection);
-        m_capture.stop();
+        const bool keepLiveInput =
+            m_liveInputButton != nullptr && m_liveInputButton->isChecked();
+        m_capture.setMonitorEnabled(keepLiveInput);
+        setProcessorPassthrough(keepLiveInput, Qt::QueuedConnection);
+        if (!keepLiveInput) {
+            stopAudioProcessor(Qt::BlockingQueuedConnection);
+            m_capture.stop();
+        }
     }
     setStatusText(QStringLiteral("Cloud conversion cancelled."));
     updateTransportState();
@@ -1228,10 +1297,14 @@ void LiveMicPanel::toggleLocalRvcConversion() {
         m_localRvcButton->setText(QStringLiteral("Start Local"));
         m_cancelLocalRvcButton->setEnabled(false);
         setProcessorLocalRvcCapture(false, Qt::BlockingQueuedConnection);
-        m_capture.setMonitorEnabled(false);
-        setProcessorPassthrough(false, Qt::QueuedConnection);
-        stopAudioProcessor(Qt::BlockingQueuedConnection);
-        m_capture.stop();
+        const bool keepLiveInput =
+            m_liveInputButton != nullptr && m_liveInputButton->isChecked();
+        m_capture.setMonitorEnabled(keepLiveInput);
+        setProcessorPassthrough(keepLiveInput, Qt::QueuedConnection);
+        if (!keepLiveInput) {
+            stopAudioProcessor(Qt::BlockingQueuedConnection);
+            m_capture.stop();
+        }
         m_rvcSidecar.stop();
         if (m_pendingLocalRvcChunks.empty() && !m_localRvcWatcher->isRunning()) {
             m_nativeRvcEngine.reset();
@@ -1310,8 +1383,10 @@ void LiveMicPanel::toggleLocalRvcConversion() {
         m_localRvcButton->setText(QStringLiteral("Stop Local"));
         m_cancelLocalRvcButton->setEnabled(true);
         m_modeCombo->setCurrentText(QStringLiteral("Local"));
-        m_capture.setMonitorEnabled(false);
-        setProcessorPassthrough(false, Qt::BlockingQueuedConnection);
+        const bool liveInput =
+            m_liveInputButton != nullptr && m_liveInputButton->isChecked();
+        m_capture.setMonitorEnabled(liveInput);
+        setProcessorPassthrough(liveInput, Qt::BlockingQueuedConnection);
         setProcessorLocalRvcCapture(true, Qt::BlockingQueuedConnection);
         const auto generatorInputs = description.value().generator.inputs.size();
         const auto generatorOutputs = description.value().generator.outputs.size();
@@ -1344,8 +1419,9 @@ void LiveMicPanel::toggleLocalRvcConversion() {
     m_localRvcButton->setText(QStringLiteral("Stop Local"));
     m_cancelLocalRvcButton->setEnabled(true);
     m_modeCombo->setCurrentText(QStringLiteral("Local"));
-    m_capture.setMonitorEnabled(false);
-    setProcessorPassthrough(false, Qt::BlockingQueuedConnection);
+    const bool liveInput = m_liveInputButton != nullptr && m_liveInputButton->isChecked();
+    m_capture.setMonitorEnabled(liveInput);
+    setProcessorPassthrough(liveInput, Qt::BlockingQueuedConnection);
     setProcessorLocalRvcCapture(true, Qt::BlockingQueuedConnection);
     QString localStatus =
         QStringLiteral("Local RVC active at %1.")
@@ -1373,10 +1449,14 @@ void LiveMicPanel::cancelLocalRvcConversion() {
         setProcessorLocalRvcCapture(false, Qt::BlockingQueuedConnection);
     }
     if (!m_cloudActive) {
-        m_capture.setMonitorEnabled(false);
-        setProcessorPassthrough(false, Qt::QueuedConnection);
-        stopAudioProcessor(Qt::BlockingQueuedConnection);
-        m_capture.stop();
+        const bool keepLiveInput =
+            m_liveInputButton != nullptr && m_liveInputButton->isChecked();
+        m_capture.setMonitorEnabled(keepLiveInput);
+        setProcessorPassthrough(keepLiveInput, Qt::QueuedConnection);
+        if (!keepLiveInput) {
+            stopAudioProcessor(Qt::BlockingQueuedConnection);
+            m_capture.stop();
+        }
     }
     m_rvcSidecar.stop();
     m_nativeRvcEngine.reset();
@@ -1448,6 +1528,7 @@ void LiveMicPanel::finishCloudConversion() {
         if (m_recordTakeCheck->isChecked()) {
             m_recordedCloudPcm.append(result.convertedPcmBytes);
         }
+        m_cloudOutputSampleRate = result.sampleRate;
         setStatusText(result.playbackWarning.isEmpty()
                           ? result.message
                           : QStringLiteral("%1 Playback: %2")
@@ -1655,7 +1736,8 @@ void LiveMicPanel::saveCloudRecordingIfReady() {
     const auto bytes = std::span<const std::uint8_t>{
         reinterpret_cast<const std::uint8_t*>(m_recordedCloudPcm.constData()),
         static_cast<std::size_t>(m_recordedCloudPcm.size())};
-    auto audio = audio::pcm16LittleEndianToPcm(bytes, 44100, kCloudOutputChannels);
+    auto audio =
+        audio::pcm16LittleEndianToPcm(bytes, m_cloudOutputSampleRate, kCloudOutputChannels);
     if (!audio) {
         setStatusText(QString::fromStdString(audio.error().message));
         m_recordedCloudPcm.clear();
@@ -1675,6 +1757,7 @@ void LiveMicPanel::saveCloudRecordingIfReady() {
     }
 
     m_recordedCloudPcm.clear();
+    refreshRecentTakes();
     setStatusText(
         QStringLiteral("Saved changed-voice take for \"%1\".").arg(m_recordingLineText));
 }
@@ -1727,7 +1810,98 @@ void LiveMicPanel::saveLocalRvcRecordingIfReady() {
 
     m_recordedLocalRvcPcm.clear();
     m_nativeRvcEngine.reset();
+    refreshRecentTakes();
     setStatusText(QStringLiteral("Saved local take for \"%1\".").arg(m_recordingLineText));
+}
+
+void LiveMicPanel::refreshRecentTakes() {
+    if (m_recentTakesWidget == nullptr) {
+        return;
+    }
+    if (!m_project.has_value()) {
+        m_recentTakesWidget->setTakes({});
+        return;
+    }
+
+    auto takes = m_takeRepository.listRecentTakes(m_project->rootPath());
+    if (!takes) {
+        m_recentTakesWidget->setTakes({});
+        setStatusText(QString::fromStdString(takes.error().message));
+        return;
+    }
+    m_recentTakesWidget->setTakes(std::move(takes).value());
+}
+
+void LiveMicPanel::playTake(db::TakeRecord take) {
+    if (!m_project.has_value()) {
+        return;
+    }
+
+    const auto absolutePath = m_project->rootPath() / std::filesystem::path{take.filePath};
+    auto played = m_audioEngine.playFile(absolutePath);
+    if (!played) {
+        setStatusText(QString::fromStdString(played.error().message));
+        return;
+    }
+    setStatusText(QStringLiteral("Playing %1 take for %2.")
+                      .arg(QString::fromStdString(take.source),
+                           QString::fromStdString(take.characterName)));
+}
+
+void LiveMicPanel::starTake(db::TakeRecord take) {
+    if (!m_project.has_value()) {
+        return;
+    }
+
+    auto starred = m_takeRepository.setActiveTake(m_project->rootPath(), take.lineId, take.id);
+    if (!starred) {
+        setStatusText(QString::fromStdString(starred.error().message));
+        return;
+    }
+    refreshRecentTakes();
+    setStatusText(QStringLiteral("Active take updated."));
+}
+
+void LiveMicPanel::revealTake(db::TakeRecord take) {
+    if (!m_project.has_value()) {
+        return;
+    }
+
+    const auto absolutePath = m_project->rootPath() / std::filesystem::path{take.filePath};
+    if (!std::filesystem::exists(absolutePath)) {
+        setStatusText(QStringLiteral("The take audio file no longer exists."));
+        return;
+    }
+
+    const auto path = QString::fromStdWString(absolutePath.wstring());
+    if (!QProcess::startDetached(QStringLiteral("explorer.exe"),
+                                 {QStringLiteral("/select,"),
+                                  QDir::toNativeSeparators(path)})) {
+        setStatusText(QStringLiteral("Unable to open File Explorer."));
+        return;
+    }
+    setStatusText(QStringLiteral("Opened take in File Explorer."));
+}
+
+void LiveMicPanel::deleteTake(db::TakeRecord take) {
+    if (!m_project.has_value()) {
+        return;
+    }
+    const auto answer =
+        QMessageBox::question(this,
+                              QStringLiteral("Delete Take"),
+                              QStringLiteral("Delete this recorded take and its audio file?"));
+    if (answer != QMessageBox::Yes) {
+        return;
+    }
+
+    auto deleted = m_takeRepository.deleteTake(m_project->rootPath(), take.lineId, take.id);
+    if (!deleted) {
+        setStatusText(QString::fromStdString(deleted.error().message));
+        return;
+    }
+    refreshRecentTakes();
+    setStatusText(QStringLiteral("Take deleted."));
 }
 
 bool LiveMicPanel::ensureRecordingLine() {

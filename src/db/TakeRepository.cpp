@@ -89,19 +89,26 @@ void bindNullableString(SQLite::Statement& statement, const int index, const std
                       columnString(query.getColumn(3)),
                       columnString(query.getColumn(4)),
                       query.getColumn(5).getString(),
-                      query.getColumn(6).getInt(),
-                      query.getColumn(7).isNull() ? 0.0 : query.getColumn(7).getDouble(),
-                      query.getColumn(8).getInt() != 0,
-                      query.getColumn(9).getString(),
-                      columnString(query.getColumn(10))};
+                       query.getColumn(6).getInt(),
+                       query.getColumn(7).isNull() ? 0.0 : query.getColumn(7).getDouble(),
+                       query.getColumn(8).getInt() != 0,
+                       query.getColumn(9).getString(),
+                       columnString(query.getColumn(10)),
+                       columnString(query.getColumn(11)),
+                       columnString(query.getColumn(12))};
 }
 
 [[nodiscard]] core::Expected<TakeRecord>
 loadTake(SQLite::Database& connection, const std::string& lineId, const std::string& takeId) {
     SQLite::Statement query{
         connection,
-        "SELECT id, line_id, source, voice_id, rvc_model_id, file_path, duration_ms, "
-        "lufs, starred, created_at, metadata_json FROM takes WHERE line_id = ? AND id = ?;"};
+        "SELECT takes.id, takes.line_id, takes.source, takes.voice_id, takes.rvc_model_id, "
+        "takes.file_path, takes.duration_ms, takes.lufs, takes.starred, takes.created_at, "
+        "takes.metadata_json, lines.text, characters.name "
+        "FROM takes "
+        "JOIN lines ON lines.id = takes.line_id "
+        "LEFT JOIN characters ON characters.id = lines.character_id "
+        "WHERE takes.line_id = ? AND takes.id = ?;"};
     query.bind(1, lineId);
     query.bind(2, takeId);
     if (!query.executeStep()) {
@@ -140,10 +147,51 @@ TakeRepository::listTakes(const std::filesystem::path& projectRoot,
     try {
         SQLite::Statement query{
             database.value().connection(),
-            "SELECT id, line_id, source, voice_id, rvc_model_id, file_path, duration_ms, "
-            "lufs, starred, created_at, metadata_json FROM takes WHERE line_id = ? "
-            "ORDER BY starred DESC, created_at DESC;"};
+            "SELECT takes.id, takes.line_id, takes.source, takes.voice_id, "
+            "takes.rvc_model_id, takes.file_path, takes.duration_ms, takes.lufs, "
+            "takes.starred, takes.created_at, takes.metadata_json, lines.text, "
+            "characters.name "
+            "FROM takes "
+            "JOIN lines ON lines.id = takes.line_id "
+            "LEFT JOIN characters ON characters.id = lines.character_id "
+            "WHERE takes.line_id = ? "
+            "ORDER BY takes.starred DESC, takes.created_at DESC;"};
         query.bind(1, lineId);
+
+        std::vector<TakeRecord> takes;
+        while (query.executeStep()) {
+            takes.push_back(takeFromQuery(query));
+        }
+        return takes;
+    } catch (const SQLite::Exception& exception) {
+        return core::makeError(core::ErrorCode::DatabaseQueryFailed, exception.what());
+    }
+}
+
+core::Expected<std::vector<TakeRecord>>
+TakeRepository::listRecentTakes(const std::filesystem::path& projectRoot, const int limit) const {
+    if (limit <= 0) {
+        return core::makeError(core::ErrorCode::InvalidArgument,
+                               "Recent take limit must be greater than zero.");
+    }
+
+    auto database = openTakeDatabase(projectRoot);
+    if (!database) {
+        return database.error();
+    }
+
+    try {
+        SQLite::Statement query{
+            database.value().connection(),
+            "SELECT takes.id, takes.line_id, takes.source, takes.voice_id, "
+            "takes.rvc_model_id, takes.file_path, takes.duration_ms, takes.lufs, "
+            "takes.starred, takes.created_at, takes.metadata_json, lines.text, "
+            "characters.name "
+            "FROM takes "
+            "JOIN lines ON lines.id = takes.line_id "
+            "LEFT JOIN characters ON characters.id = lines.character_id "
+            "ORDER BY takes.created_at DESC LIMIT ?;"};
+        query.bind(1, limit);
 
         std::vector<TakeRecord> takes;
         while (query.executeStep()) {

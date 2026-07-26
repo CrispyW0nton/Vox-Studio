@@ -71,7 +71,6 @@ TEST_CASE("TTS API streams PCM chunks and builds request body", "[net][elevenlab
     voxstudio::net::elevenlabs::TtsRequest request;
     request.voiceId = "voice/id";
     request.text = "Line text";
-    request.outputFormat = "pcm_44100";
     request.voiceSettings.stability = 0.3;
     request.voiceSettings.similarityBoost = 0.8;
     request.voiceSettings.style = 0.1;
@@ -90,13 +89,14 @@ TEST_CASE("TTS API streams PCM chunks and builds request body", "[net][elevenlab
     CHECK(callbackBytes == streamed.value().audioBytes);
     CHECK(transportView->apiKey() == "test-key");
     CHECK(transportView->path() ==
-          "/v1/text-to-speech/voice%2Fid/stream?output_format=pcm_44100");
+          "/v1/text-to-speech/voice%2Fid/stream?output_format=pcm_24000");
 
     const auto body = nlohmann::json::parse(transportView->bodyJson());
     CHECK(body.at("text").get<std::string>() == "Line text");
     CHECK(body.at("voice_settings").at("stability").get<double>() == 0.3);
     CHECK(body.at("voice_settings").at("use_speaker_boost").get<bool>() == false);
     CHECK(voxstudio::net::elevenlabs::pcmSampleRateFromOutputFormat("pcm_44100") == 44100);
+    CHECK(voxstudio::net::elevenlabs::pcmSampleRateFromOutputFormat("pcm_24000") == 24000);
 }
 
 TEST_CASE("TTS API reports HTTP and validation errors", "[net][elevenlabs][tts]") {

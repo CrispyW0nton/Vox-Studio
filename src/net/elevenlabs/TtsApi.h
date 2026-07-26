@@ -46,7 +46,7 @@ struct TtsRequest final {
     std::string voiceId;
     std::string text;
     std::string modelId{"eleven_multilingual_v2"};
-    std::string outputFormat{"pcm_44100"};
+    std::string outputFormat{"pcm_24000"};
     core::VoiceSettings voiceSettings;
 };
 

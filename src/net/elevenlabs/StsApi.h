@@ -52,7 +52,7 @@ struct StsRequest final {
     std::string voiceId;
     std::vector<std::uint8_t> pcm16Audio;
     std::string modelId{"eleven_multilingual_sts_v2"};
-    std::string outputFormat{"pcm_44100"};
+    std::string outputFormat{"pcm_24000"};
     std::string inputFileFormat{"pcm_s16le_16"};
     core::VoiceSettings voiceSettings;
     bool removeBackgroundNoise{true};

@@ -7,6 +7,7 @@
 #include <QComboBox>
 #include <QLabel>
 #include <QLineEdit>
+#include <QListWidget>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QSlider>
@@ -92,6 +93,11 @@ void LiveMicPanelTest::exposesLiveMicControlsAndLatencyProbe() {
     QVERIFY(hearButton != nullptr);
     QVERIFY(!hearButton->isChecked());
     QCOMPARE(hearButton->text(), QStringLiteral("Mic Check"));
+    auto* liveInputButton =
+        panel.findChild<QPushButton*>(QStringLiteral("LiveMicInputMonitorButton"));
+    QVERIFY(liveInputButton != nullptr);
+    QVERIFY(liveInputButton->isChecked());
+    QCOMPARE(liveInputButton->text(), QStringLiteral("Live Input On"));
     auto* broadcastButton =
         panel.findChild<QPushButton*>(QStringLiteral("LiveMicBroadcastButton"));
     QVERIFY(broadcastButton != nullptr);
@@ -150,6 +156,14 @@ void LiveMicPanelTest::exposesLiveMicControlsAndLatencyProbe() {
     auto* lineIdEdit = panel.findChild<QLineEdit*>(QStringLiteral("LiveMicLineIdEdit"));
     QVERIFY(lineIdEdit != nullptr);
     QVERIFY(lineIdEdit->placeholderText().contains(QStringLiteral("line")));
+
+    auto* recentTakes = panel.findChild<QListWidget*>(QStringLiteral("TakeList"));
+    QVERIFY(recentTakes != nullptr);
+    QCOMPARE(recentTakes->count(), 0);
+    auto* revealTakeButton =
+        panel.findChild<QPushButton*>(QStringLiteral("TakeRevealButton"));
+    QVERIFY(revealTakeButton != nullptr);
+    QVERIFY(!revealTakeButton->isEnabled());
 
     auto* costLabel = panel.findChild<QLabel*>(QStringLiteral("LiveMicCostLabel"));
     QVERIFY(costLabel != nullptr);

@@ -73,7 +73,6 @@ TEST_CASE("STS API streams converted audio and builds multipart request",
     voxstudio::net::elevenlabs::StsRequest request;
     request.voiceId = "voice/id";
     request.pcm16Audio = {0x01, 0x00, 0x02, 0x00};
-    request.outputFormat = "pcm_44100";
     request.voiceSettings.stability = 0.25;
     request.voiceSettings.useSpeakerBoost = false;
 
@@ -90,7 +89,7 @@ TEST_CASE("STS API streams converted audio and builds multipart request",
     CHECK(callbackBytes == streamed.value().audioBytes);
     CHECK(transportView->apiKey() == "test-key");
     CHECK(transportView->path() ==
-          "/v1/speech-to-speech/voice%2Fid/stream?output_format=pcm_44100&"
+          "/v1/speech-to-speech/voice%2Fid/stream?output_format=pcm_24000&"
           "optimize_streaming_latency=3");
     CHECK(transportView->request().audioBytes == request.pcm16Audio);
     CHECK(transportView->request().modelId == "eleven_multilingual_sts_v2");
@@ -115,6 +114,16 @@ TEST_CASE("STS API reports HTTP and validation errors", "[net][elevenlabs][sts]"
     auto streamed = api.streamSpeech(request, {});
     REQUIRE_FALSE(streamed.hasValue());
     CHECK(streamed.error().statusCode == 402);
+
+    const auto authorizationBody =
+        R"({"detail":{"code":"subscription_required","message":"PCM 44.1kHz requires Pro."}})";
+    transport = std::make_unique<FakeStsTransport>(
+        std::vector<std::vector<std::uint8_t>>{}, 403, authorizationBody);
+    const voxstudio::net::elevenlabs::StsApi deniedApi{"test-key", std::move(transport)};
+    streamed = deniedApi.streamSpeech(request, {});
+    REQUIRE_FALSE(streamed.hasValue());
+    CHECK(streamed.error().message.find("PCM 44.1kHz requires Pro.") != std::string::npos);
+    CHECK(streamed.error().message.find("subscription_required") != std::string::npos);
 
     const voxstudio::net::elevenlabs::StsApi missingKeyApi{""};
     streamed = missingKeyApi.streamSpeech(request, {});

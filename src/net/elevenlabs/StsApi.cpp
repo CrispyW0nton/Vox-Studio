@@ -3,6 +3,7 @@
 #include <cpr/cpr.h>
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <cctype>
 #include <exception>
@@ -16,6 +17,7 @@ namespace {
 
 constexpr auto kDefaultBaseUrl = "https://api.elevenlabs.io";
 constexpr int kPcm16InputSampleRate = 16000;
+constexpr std::size_t kMaximumErrorBodyBytes = 64U * 1024U;
 constexpr std::chrono::seconds kRequestTimeout{90};
 
 [[nodiscard]] std::string joinedUrl(const std::string& baseUrl, const std::string& path) {
@@ -72,6 +74,35 @@ constexpr std::chrono::seconds kRequestTimeout{90};
     return true;
 }
 
+[[nodiscard]] std::string errorMessageFromBody(const std::string& body) {
+    if (body.empty()) {
+        return "ElevenLabs rejected the Voice Changer request.";
+    }
+
+    try {
+        const auto json = nlohmann::json::parse(body);
+        if (!json.contains("detail")) {
+            return body;
+        }
+        const auto& detail = json.at("detail");
+        if (detail.is_string()) {
+            return detail.get<std::string>();
+        }
+        if (!detail.is_object()) {
+            return body;
+        }
+
+        const auto message = detail.value("message", std::string{});
+        const auto code = detail.value("code", std::string{});
+        if (!message.empty() && !code.empty()) {
+            return message + " (" + code + ")";
+        }
+        return message.empty() ? body : message;
+    } catch (const nlohmann::json::exception&) {
+        return body;
+    }
+}
+
 } // namespace
 
 CprStsHttpTransport::CprStsHttpTransport()
@@ -86,7 +117,13 @@ CprStsHttpTransport::postMultipartStream(const std::string& path,
                                          const StsMultipartRequest& request,
                                          const AudioChunkCallback& onChunk) const {
     try {
-        const auto callback = cpr::WriteCallback{[&onChunk](const std::string_view data, intptr_t) {
+        std::string streamedBody;
+        const auto callback = cpr::WriteCallback{[&onChunk, &streamedBody](
+                                                     const std::string_view data, intptr_t) {
+            if (streamedBody.size() < kMaximumErrorBodyBytes) {
+                const auto remaining = kMaximumErrorBodyBytes - streamedBody.size();
+                streamedBody.append(data.substr(0, std::min(remaining, data.size())));
+            }
             const auto* bytes = reinterpret_cast<const std::uint8_t*>(data.data());
             return onChunk(std::span<const std::uint8_t>{bytes, data.size()});
         }};
@@ -113,7 +150,11 @@ CprStsHttpTransport::postMultipartStream(const std::string& path,
         if (response.error.code != cpr::ErrorCode::OK) {
             return makeApiError(ApiErrorCode::TransportFailure, response.error.message);
         }
-        return HttpResponse{static_cast<int>(response.status_code), response.text};
+        auto body = response.text;
+        if ((response.status_code < 200 || response.status_code >= 300) && body.empty()) {
+            body = std::move(streamedBody);
+        }
+        return HttpResponse{static_cast<int>(response.status_code), std::move(body)};
     } catch (const std::exception& exception) {
         return makeApiError(ApiErrorCode::TransportFailure, exception.what());
     }
@@ -154,7 +195,7 @@ StsApi::streamSpeech(const StsRequest& request, const AudioChunkCallback& onChun
     result.statusCode = response.value().statusCode;
     if (response.value().statusCode < 200 || response.value().statusCode >= 300) {
         return makeApiError(ApiErrorCode::HttpError,
-                            response.value().body,
+                            errorMessageFromBody(response.value().body),
                             response.value().statusCode);
     }
     if (result.audioBytes.empty()) {

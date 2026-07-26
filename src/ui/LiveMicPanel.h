@@ -5,6 +5,7 @@
 #include "audio/LatencyProbe.h"
 #include "core/Project.h"
 #include "db/ScriptRepository.h"
+#include "db/TakeRepository.h"
 #include "db/VoiceRepository.h"
 #include "rvc/RvcModelRegistry.h"
 #include "rvc/RvcSidecar.h"
@@ -38,6 +39,7 @@ class OnnxRvcEngine;
 namespace voxstudio::ui {
 
 class LiveAudioProcessor;
+class TakeListWidget;
 
 struct CloudConversionResult final {
     bool success{false};
@@ -45,6 +47,7 @@ struct CloudConversionResult final {
     QString playbackWarning;
     QByteArray convertedPcmBytes;
     double inputSeconds{0.0};
+    int sampleRate{24000};
 };
 
 struct LocalRvcConversionResult final {
@@ -90,6 +93,7 @@ private:
     void updateVoiceHud();
     void updateTransportState();
     void setHearSelfChecked(bool enabled);
+    void setLiveInputChecked(bool enabled);
     void applyMeterUpdate(int level, bool speechActive);
     void enqueueCloudChunk(QByteArray chunk);
     void enqueueLocalRvcChunk(QByteArray chunk);
@@ -106,6 +110,11 @@ private:
     void startNextLocalRvcChunk();
     void saveCloudRecordingIfReady();
     void saveLocalRvcRecordingIfReady();
+    void refreshRecentTakes();
+    void playTake(db::TakeRecord take);
+    void starTake(db::TakeRecord take);
+    void revealTake(db::TakeRecord take);
+    void deleteTake(db::TakeRecord take);
     [[nodiscard]] bool ensureRecordingLine();
     [[nodiscard]] audio::CaptureConfig currentCaptureConfig() const;
     [[nodiscard]] std::string currentVoiceId() const;
@@ -121,6 +130,7 @@ private:
     audio::AudioEngine m_broadcastAudioEngine;
     audio::LatencyProbe m_latencyProbe;
     db::ScriptRepository m_scriptRepository;
+    db::TakeRepository m_takeRepository;
     db::VoiceRepository m_voiceRepository;
     rvc::RvcModelRegistry m_rvcModelRegistry;
     rvc::RvcSidecar m_rvcSidecar;
@@ -144,6 +154,7 @@ private:
     std::shared_ptr<std::atomic_bool> m_localRvcCancelFlag;
     double m_cloudSeconds{0.0};
     double m_localRvcSeconds{0.0};
+    int m_cloudOutputSampleRate{24000};
     int m_localRvcOutputSampleRate{48000};
     int m_localRvcOutputChannels{1};
     bool m_cloudActive{false};
@@ -181,12 +192,14 @@ private:
     QPushButton* m_latencyButton{nullptr};
     QPushButton* m_voicePowerButton{nullptr};
     QPushButton* m_monitorButton{nullptr};
+    QPushButton* m_liveInputButton{nullptr};
     QPushButton* m_broadcastButton{nullptr};
     QPushButton* m_cloudButton{nullptr};
     QPushButton* m_cancelCloudButton{nullptr};
     QPushButton* m_localRvcButton{nullptr};
     QPushButton* m_cancelLocalRvcButton{nullptr};
     QPushButton* m_manageRvcModelsButton{nullptr};
+    TakeListWidget* m_recentTakesWidget{nullptr};
     std::array<QPushButton*, 6> m_quickVoiceButtons{};
 };
 

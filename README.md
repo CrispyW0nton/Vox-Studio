@@ -98,12 +98,14 @@ voice model weights exportable.
 In **Live Mic**, use **Mic Check** to verify the selected input and headphone
 output with your unchanged microphone. **Performance** captures each spoken
 phrase and sends it to ElevenLabs Voice Changer so timing, delivery, and emotion
-come from the actor's microphone performance. **Hear Result** plays each
-completed changed-voice phrase through the selected headphones. Type the line
-before recording and Vox Studio creates the character line and saves the
-converted take automatically. **Broadcast** can also send the changed phrase to
-a virtual audio line; select that virtual microphone endpoint in OBS, a game, or
-chat software.
+come from the actor's microphone performance. **Live Input** keeps the unchanged
+microphone audible while recording, while **Hear Result** plays each completed
+changed-voice phrase through the selected headphones. Type the line before
+recording and Vox Studio creates the character line and saves the converted take
+automatically. The **Recent Takes** panel can play, star, reveal, and delete
+recordings without leaving Live Mic. **Broadcast** can also send the changed
+phrase to a virtual audio line; select that virtual microphone endpoint in OBS,
+a game, or chat software.
 
 ElevenLabs speech-to-speech is a request/response service, so this mode has a
 phrase-length plus network delay. It is intended for performance capture and
