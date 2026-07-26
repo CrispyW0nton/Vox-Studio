@@ -131,9 +131,22 @@ TEST_CASE("script repository persists imported lines and speaker mappings", "[db
     INFO(assignVoiceError);
     REQUIRE(assignedVoice.hasValue());
 
+    auto performanceLine = scriptRepository.createPerformanceLine(
+        projectRoot, "Alice", "voice_alice", "A live performance line.");
+    REQUIRE(performanceLine.hasValue());
+    CHECK(performanceLine.value().characterName == "Alice");
+    CHECK(performanceLine.value().voiceId == "voice_alice");
+    CHECK(performanceLine.value().text == "A live performance line.");
+
+    auto liveLines =
+        scriptRepository.listLines(projectRoot, performanceLine.value().scriptId);
+    REQUIRE(liveLines.hasValue());
+    REQUIRE(liveLines.value().size() == 1);
+    CHECK(liveLines.value().front().id == performanceLine.value().id);
+
     auto refreshedProject = projectRepository.openProject(projectRoot);
     REQUIRE(refreshedProject.hasValue());
     CHECK(refreshedProject.value().counts().characterCount == 2);
-    CHECK(refreshedProject.value().counts().lineCount == 3);
+    CHECK(refreshedProject.value().counts().lineCount == 4);
     CHECK(refreshedProject.value().counts().voiceCount == 1);
 }

@@ -62,6 +62,12 @@ public:
                  const io::scripts::ParsedScript& script,
                  const std::vector<CharacterAssignment>& assignments) const;
 
+    [[nodiscard]] core::Expected<ScriptLineRecord>
+    createPerformanceLine(const std::filesystem::path& projectRoot,
+                          const std::string& characterName,
+                          const std::string& voiceId,
+                          const std::string& text) const;
+
     [[nodiscard]] core::Expected<bool>
     updateLineVoiceSettings(const std::filesystem::path& projectRoot,
                             const std::string& lineId,

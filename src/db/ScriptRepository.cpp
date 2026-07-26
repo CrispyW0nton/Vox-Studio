@@ -339,6 +339,96 @@ ScriptRepository::importScript(const std::filesystem::path& projectRoot,
     }
 }
 
+core::Expected<ScriptLineRecord>
+ScriptRepository::createPerformanceLine(const std::filesystem::path& projectRoot,
+                                        const std::string& characterName,
+                                        const std::string& voiceId,
+                                        const std::string& text) const {
+    if (characterName.empty() || text.empty()) {
+        return core::makeError(
+            core::ErrorCode::InvalidArgument,
+            "Character and line text are required for a performance line.");
+    }
+
+    auto database = openScriptDatabase(projectRoot);
+    if (!database) {
+        return database.error();
+    }
+
+    try {
+        auto& connection = database.value().connection();
+        SQLite::Transaction transaction{connection};
+
+        auto character = upsertCharacter(connection, characterName, voiceId);
+        if (!character) {
+            return character.error();
+        }
+
+        std::string scriptId;
+        SQLite::Statement scriptQuery{
+            connection,
+            "SELECT id FROM scripts WHERE format = 'live' ORDER BY imported_at LIMIT 1;"};
+        if (scriptQuery.executeStep()) {
+            scriptId = scriptQuery.getColumn(0).getString();
+        } else {
+            auto generatedScriptId = generateId("script_");
+            if (!generatedScriptId) {
+                return generatedScriptId.error();
+            }
+            scriptId = generatedScriptId.value();
+            SQLite::Statement insertScript{
+                connection,
+                "INSERT INTO scripts(id, source_path, format, imported_at) "
+                "VALUES (?, 'Vox Studio Live Mic', 'live', ?);"};
+            insertScript.bind(1, scriptId);
+            insertScript.bind(2, utcTimestampNow());
+            insertScript.exec();
+        }
+
+        int order = 0;
+        SQLite::Statement orderQuery{
+            connection,
+            "SELECT COALESCE(MAX(ord), -1) + 1 FROM lines WHERE script_id = ?;"};
+        orderQuery.bind(1, scriptId);
+        if (orderQuery.executeStep()) {
+            order = orderQuery.getColumn(0).getInt();
+        }
+
+        auto lineId = generateId("line_");
+        if (!lineId) {
+            return lineId.error();
+        }
+
+        SQLite::Statement insertLine{
+            connection,
+            "INSERT INTO lines(id, script_id, ord, character_id, text, scene_tag, "
+            "voice_settings_json, active_take_id) VALUES (?, ?, ?, ?, ?, NULL, ?, NULL);"};
+        insertLine.bind(1, lineId.value());
+        insertLine.bind(2, scriptId);
+        insertLine.bind(3, order);
+        insertLine.bind(4, character.value().id);
+        insertLine.bind(5, text);
+        insertLine.bind(6, kDefaultVoiceSettingsJson);
+        insertLine.exec();
+
+        transaction.commit();
+        return ScriptLineRecord{lineId.value(),
+                                scriptId,
+                                order,
+                                character.value().id,
+                                character.value().name,
+                                character.value().voiceId,
+                                text,
+                                {},
+                                kDefaultVoiceSettingsJson,
+                                {}};
+    } catch (const SQLite::Exception& exception) {
+        return core::makeError(core::ErrorCode::DatabaseQueryFailed, exception.what());
+    } catch (const std::exception& exception) {
+        return core::makeError(core::ErrorCode::DatabaseQueryFailed, exception.what());
+    }
+}
+
 core::Expected<bool>
 ScriptRepository::updateLineVoiceSettings(const std::filesystem::path& projectRoot,
                                           const std::string& lineId,

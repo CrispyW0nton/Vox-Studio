@@ -4,12 +4,14 @@
 #include "audio/Capture.h"
 #include "audio/LatencyProbe.h"
 #include "core/Project.h"
+#include "db/ScriptRepository.h"
 #include "db/VoiceRepository.h"
 #include "rvc/RvcModelRegistry.h"
 #include "rvc/RvcSidecar.h"
 
 #include <QByteArray>
 #include <QFutureWatcher>
+#include <QString>
 #include <QThread>
 #include <QWidget>
 
@@ -104,6 +106,7 @@ private:
     void startNextLocalRvcChunk();
     void saveCloudRecordingIfReady();
     void saveLocalRvcRecordingIfReady();
+    [[nodiscard]] bool ensureRecordingLine();
     [[nodiscard]] audio::CaptureConfig currentCaptureConfig() const;
     [[nodiscard]] std::string currentVoiceId() const;
     [[nodiscard]] std::string currentRvcModelId() const;
@@ -117,6 +120,7 @@ private:
     audio::AudioEngine m_audioEngine;
     audio::AudioEngine m_broadcastAudioEngine;
     audio::LatencyProbe m_latencyProbe;
+    db::ScriptRepository m_scriptRepository;
     db::VoiceRepository m_voiceRepository;
     rvc::RvcModelRegistry m_rvcModelRegistry;
     rvc::RvcSidecar m_rvcSidecar;
@@ -132,6 +136,10 @@ private:
     std::deque<QByteArray> m_pendingLocalRvcChunks;
     QByteArray m_recordedCloudPcm;
     QByteArray m_recordedLocalRvcPcm;
+    std::string m_recordingLineId;
+    std::string m_recordingLineVoiceId;
+    std::string m_recordingRvcModelId;
+    QString m_recordingLineText;
     std::shared_ptr<std::atomic_bool> m_cloudCancelFlag;
     std::shared_ptr<std::atomic_bool> m_localRvcCancelFlag;
     double m_cloudSeconds{0.0};

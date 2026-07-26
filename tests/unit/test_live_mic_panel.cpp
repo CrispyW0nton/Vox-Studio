@@ -71,7 +71,7 @@ void LiveMicPanelTest::exposesLiveMicControlsAndLatencyProbe() {
 
     auto* modeCombo = panel.findChild<QComboBox*>(QStringLiteral("LiveMicModeCombo"));
     QVERIFY(modeCombo != nullptr);
-    QCOMPARE(modeCombo->currentText(), QStringLiteral("Monitor"));
+    QCOMPARE(modeCombo->currentText(), QStringLiteral("Mic Check"));
 
     auto* voiceCombo = panel.findChild<QComboBox*>(QStringLiteral("LiveMicVoiceCombo"));
     QVERIFY(voiceCombo != nullptr);
@@ -82,7 +82,7 @@ void LiveMicPanelTest::exposesLiveMicControlsAndLatencyProbe() {
 
     auto* monitorToggle = panel.findChild<QCheckBox*>(QStringLiteral("LiveMicMonitorToggle"));
     QVERIFY(monitorToggle != nullptr);
-    QVERIFY(monitorToggle->isChecked());
+    QVERIFY(!monitorToggle->isChecked());
 
     auto* powerButton = panel.findChild<QPushButton*>(QStringLiteral("LiveMicPowerButton"));
     QVERIFY(powerButton != nullptr);
@@ -90,7 +90,8 @@ void LiveMicPanelTest::exposesLiveMicControlsAndLatencyProbe() {
 
     auto* hearButton = panel.findChild<QPushButton*>(QStringLiteral("LiveMicHearButton"));
     QVERIFY(hearButton != nullptr);
-    QVERIFY(hearButton->isChecked());
+    QVERIFY(!hearButton->isChecked());
+    QCOMPARE(hearButton->text(), QStringLiteral("Mic Check"));
     auto* broadcastButton =
         panel.findChild<QPushButton*>(QStringLiteral("LiveMicBroadcastButton"));
     QVERIFY(broadcastButton != nullptr);
@@ -144,10 +145,11 @@ void LiveMicPanelTest::exposesLiveMicControlsAndLatencyProbe() {
 
     auto* recordTake = panel.findChild<QCheckBox*>(QStringLiteral("LiveMicRecordTakeCheck"));
     QVERIFY(recordTake != nullptr);
-    QVERIFY(!recordTake->isChecked());
+    QVERIFY(recordTake->isChecked());
 
     auto* lineIdEdit = panel.findChild<QLineEdit*>(QStringLiteral("LiveMicLineIdEdit"));
     QVERIFY(lineIdEdit != nullptr);
+    QVERIFY(lineIdEdit->placeholderText().contains(QStringLiteral("line")));
 
     auto* costLabel = panel.findChild<QLabel*>(QStringLiteral("LiveMicCostLabel"));
     QVERIFY(costLabel != nullptr);
@@ -200,6 +202,9 @@ void LiveMicPanelTest::enablesCloudConversionWhenProjectHasCachedVoice() {
     auto* cloudButton = panel.findChild<QPushButton*>(QStringLiteral("LiveMicCloudButton"));
     QVERIFY(cloudButton != nullptr);
     QVERIFY(cloudButton->isEnabled());
+    QCOMPARE(cloudButton->text(), QStringLiteral("Record Performance"));
+    QCOMPARE(panel.findChild<QComboBox*>(QStringLiteral("LiveMicModeCombo"))->currentText(),
+             QStringLiteral("Performance"));
 }
 
 QTEST_MAIN(LiveMicPanelTest)

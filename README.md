@@ -95,12 +95,15 @@ attach it to a character imported from a script. Vox Studio stores the voice
 identity and project assignment locally; ElevenLabs does not make its trained
 voice model weights exportable.
 
-In **Live Mic**, **Perform as Voice** captures complete spoken phrases and sends
-them to ElevenLabs Voice Changer so timing, delivery, and emotion come from the
-actor's microphone performance. Converted phrases can be monitored through
-headphones and sent independently to a virtual audio line using **Voice
-output** and **Broadcast**. Select the matching virtual microphone endpoint in
-OBS, a game, or chat software.
+In **Live Mic**, use **Mic Check** to verify the selected input and headphone
+output with your unchanged microphone. **Performance** captures each spoken
+phrase and sends it to ElevenLabs Voice Changer so timing, delivery, and emotion
+come from the actor's microphone performance. **Hear Result** plays each
+completed changed-voice phrase through the selected headphones. Type the line
+before recording and Vox Studio creates the character line and saves the
+converted take automatically. **Broadcast** can also send the changed phrase to
+a virtual audio line; select that virtual microphone endpoint in OBS, a game, or
+chat software.
 
 ElevenLabs speech-to-speech is a request/response service, so this mode has a
 phrase-length plus network delay. It is intended for performance capture and
