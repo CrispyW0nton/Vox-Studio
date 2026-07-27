@@ -7,10 +7,12 @@
 #include "io/scripts/ScriptImporter.h"
 
 #include <catch2/catch_test_macros.hpp>
+#include <sndfile.h>
 
 #include <chrono>
 #include <cmath>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -60,9 +62,19 @@ private:
     return audio;
 }
 
+[[nodiscard]] bool isMp3File(const std::filesystem::path& path) {
+    SF_INFO info{};
+    const std::unique_ptr<SNDFILE, decltype(&sf_close)> file{
+        sf_open(path.string().c_str(), SFM_READ, &info),
+        &sf_close,
+    };
+    return file != nullptr && (info.format & SF_FORMAT_TYPEMASK) == SF_FORMAT_MPEG &&
+           (info.format & SF_FORMAT_SUBMASK) == SF_FORMAT_MPEG_LAYER_III;
+}
+
 } // namespace
 
-TEST_CASE("take manager stores Opus takes and restores active take", "[core][takes]") {
+TEST_CASE("take manager stores MP3 takes and restores active take", "[core][takes]") {
     const TemporaryDirectory directory;
     const auto projectRoot = directory.path() / "Takes.vox";
 
@@ -90,15 +102,17 @@ TEST_CASE("take manager stores Opus takes and restores active take", "[core][tak
     voxstudio::core::VoiceSettings settings;
     settings.stability = 0.25;
     auto savedTake = manager.saveTtsTake(projectRoot, lineId, "voice_alice", sinePcm(), settings);
+    const auto saveError = savedTake ? std::string{} : savedTake.error().message;
+    INFO(saveError);
     REQUIRE(savedTake.hasValue());
     CHECK(savedTake.value().take.starred);
     CHECK(savedTake.value().take.source == "tts");
+    CHECK(savedTake.value().take.filePath.ends_with(".mp3"));
+    CHECK(savedTake.value().absolutePath.extension() == ".mp3");
+    CHECK(savedTake.value().take.metadataJson.find("\"codec\":\"mp3\"") != std::string::npos);
     CHECK(std::filesystem::exists(savedTake.value().absolutePath));
+    CHECK(isMp3File(savedTake.value().absolutePath));
 
-    auto decoded = voxstudio::audio::readOpusFile(savedTake.value().absolutePath);
-    REQUIRE(decoded.hasValue());
-    CHECK(decoded.value().sampleRate == 48000);
-    CHECK(decoded.value().frameCount() > 0);
     auto playbackDecoded = voxstudio::audio::decodeAudioFile(savedTake.value().absolutePath);
     REQUIRE(playbackDecoded.hasValue());
     CHECK(playbackDecoded.value().sampleRate == 48000);
@@ -127,7 +141,7 @@ TEST_CASE("take manager stores Opus takes and restores active take", "[core][tak
     CHECK_FALSE(std::filesystem::exists(savedTake.value().absolutePath));
 }
 
-TEST_CASE("take manager stores STS takes as active Opus takes", "[core][takes][sts]") {
+TEST_CASE("take manager stores STS takes as active MP3 takes", "[core][takes][sts]") {
     const TemporaryDirectory directory;
     const auto projectRoot = directory.path() / "StsTakes.vox";
 
@@ -157,6 +171,8 @@ TEST_CASE("take manager stores STS takes as active Opus takes", "[core][takes][s
     REQUIRE(savedTake.hasValue());
     CHECK(savedTake.value().take.starred);
     CHECK(savedTake.value().take.source == "sts");
+    CHECK(savedTake.value().absolutePath.extension() == ".mp3");
+    CHECK(savedTake.value().take.metadataJson.find("\"codec\":\"mp3\"") != std::string::npos);
     CHECK(std::filesystem::exists(savedTake.value().absolutePath));
 
     const voxstudio::db::TakeRepository takeRepository;

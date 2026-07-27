@@ -142,7 +142,7 @@ recording while you speak, divides the performance only at natural pauses,
 renders every section after you stop, and then plays the complete character
 result. An optional exact script is allocated across those sections at sentence
 boundaries. Choose a capture name and folder before recording; the finished
-changed-voice performance is saved there as WAV and can be opened directly with
+changed-voice performance is saved there as MP3 and can be opened directly with
 **Open in Explorer**. When take saving is enabled, it is also stored in the
 project.
 

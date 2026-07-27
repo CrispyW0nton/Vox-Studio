@@ -12,6 +12,8 @@ namespace voxstudio::audio {
 
 [[nodiscard]] core::Expected<PcmAudioBuffer> decodeAudioFile(const std::filesystem::path& path);
 [[nodiscard]] core::Expected<PcmAudioBuffer> readOpusFile(const std::filesystem::path& path);
+[[nodiscard]] core::Expected<bool> writeMp3File(const std::filesystem::path& path,
+                                                const PcmAudioBuffer& audio);
 [[nodiscard]] core::Expected<bool> writeOpusFile(const std::filesystem::path& path,
                                                  const PcmAudioBuffer& audio);
 [[nodiscard]] core::Expected<bool> writeWavFile(const std::filesystem::path& path,

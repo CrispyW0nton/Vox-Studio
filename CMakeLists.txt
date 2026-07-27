@@ -304,6 +304,7 @@ if(BUILD_TESTING)
     target_include_directories(
         VoxStudioUnitTests
         PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+                "${SNDFILE_INCLUDE_DIR}"
     )
     target_compile_definitions(
         VoxStudioUnitTests

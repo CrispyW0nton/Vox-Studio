@@ -151,17 +151,17 @@ Expected<SavedTake> saveVoiceTake(const db::TakeRepository& repository,
 
     const auto safeLineId = safePathSegment(lineId);
     const auto safeTakeId = safePathSegment(takeId.value());
-    const auto relativePath = std::filesystem::path{"takes"} / safeLineId / (safeTakeId + ".opus");
+    const auto relativePath = std::filesystem::path{"takes"} / safeLineId / (safeTakeId + ".mp3");
     const auto absolutePath = projectRoot / relativePath;
 
-    auto written = audio::writeOpusFile(absolutePath, prepared.value());
+    auto written = audio::writeMp3File(absolutePath, prepared.value());
     if (!written) {
         return written.error();
     }
 
     nlohmann::json metadata;
     metadata["voice_settings"] = nlohmann::json::parse(voiceSettingsToJson(settings));
-    metadata["codec"] = "opus";
+    metadata["codec"] = "mp3";
     if (source == "sts") {
         metadata["engine"] = "elevenlabs_sts";
     } else if (source == "voxcpm2" || source == "voxcpm2_tts") {

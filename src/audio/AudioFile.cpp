@@ -98,6 +98,51 @@ core::Expected<PcmAudioBuffer> readOpusFile(const std::filesystem::path& path) {
     return audio;
 }
 
+core::Expected<bool> writeMp3File(const std::filesystem::path& path,
+                                  const PcmAudioBuffer& audio) {
+    if (audio.empty()) {
+        return audioFileError("Cannot write an empty MP3 file.");
+    }
+    if (audio.channels > 2) {
+        return audioFileError("MP3 files support at most two channels.");
+    }
+
+    try {
+        std::filesystem::create_directories(path.parent_path());
+    } catch (const std::filesystem::filesystem_error& exception) {
+        return audioFileError(exception.what());
+    }
+
+    SF_INFO info{};
+    info.samplerate = audio.sampleRate;
+    info.channels = audio.channels;
+    info.format = SF_FORMAT_MPEG | SF_FORMAT_MPEG_LAYER_III;
+
+    auto file = openSndFile(path, SFM_WRITE, info);
+    if (file == nullptr) {
+        return audioFileError("MP3 file could not be opened for writing.");
+    }
+
+    double compressionLevel = 0.15;
+    if (sf_command(file.get(), SFC_SET_COMPRESSION_LEVEL, &compressionLevel,
+                   static_cast<int>(sizeof(compressionLevel))) == SF_FALSE) {
+        return audioFileError("MP3 quality could not be configured.");
+    }
+
+    int bitrateMode = SF_BITRATE_MODE_VARIABLE;
+    if (sf_command(file.get(), SFC_SET_BITRATE_MODE, &bitrateMode,
+                   static_cast<int>(sizeof(bitrateMode))) == SF_FALSE) {
+        return audioFileError("MP3 variable-bitrate mode could not be configured.");
+    }
+
+    const auto written = sf_writef_float(file.get(), audio.samples.data(),
+                                         static_cast<sf_count_t>(audio.frameCount()));
+    if (written != static_cast<sf_count_t>(audio.frameCount())) {
+        return audioFileError("MP3 file could not be fully written.");
+    }
+    return true;
+}
+
 core::Expected<bool> writeOpusFile(const std::filesystem::path& path,
                                    const PcmAudioBuffer& audio) {
     if (audio.empty()) {

@@ -149,12 +149,12 @@ template <typename TWidget, typename... TArgs>
     const QString& captureName) {
     const auto baseName = safeCaptureName(captureName);
     auto candidate =
-        folder / std::filesystem::path{(baseName + QStringLiteral(".wav")).toStdWString()};
+        folder / std::filesystem::path{(baseName + QStringLiteral(".mp3")).toStdWString()};
     for (int suffix = 2; std::filesystem::exists(candidate); ++suffix) {
         candidate =
             folder /
             std::filesystem::path{
-                QStringLiteral("%1 (%2).wav").arg(baseName).arg(suffix).toStdWString()};
+                QStringLiteral("%1 (%2).mp3").arg(baseName).arg(suffix).toStdWString()};
     }
     return candidate;
 }
@@ -2156,7 +2156,7 @@ bool LiveMicPanel::saveMonologueCapture(const audio::PcmAudioBuffer& audio,
     }
 
     const auto outputPath = uniqueCapturePath(m_activeCaptureFolder, m_activeCaptureName);
-    auto written = audio::writeWavFile(outputPath, audio);
+    auto written = audio::writeMp3File(outputPath, audio);
     if (!written) {
         setStatusText(QString::fromStdString(written.error().message));
         return false;
