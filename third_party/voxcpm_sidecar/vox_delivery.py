@@ -293,6 +293,55 @@ def load_pronunciations(path: Path) -> tuple[PronunciationEntry, ...]:
     return tuple(entries)
 
 
+def build_transcription_hotwords(
+    entries: Iterable[PronunciationEntry],
+    context: Iterable[str] = (),
+) -> str:
+    entry_list = tuple(entries)
+    canonical_keys = {entry.term.casefold() for entry in entry_list}
+    words: list[str] = []
+    seen: set[str] = set()
+    context_values: list[str] = []
+    for item in context:
+        value = str(item).strip()
+        if value and value.casefold() not in canonical_keys:
+            context_values.append(value)
+    for value in (*context_values, *(entry.term for entry in entry_list)):
+        key = value.casefold()
+        if value and key not in seen:
+            words.append(value)
+            seen.add(key)
+    return " ".join(words)
+
+
+def canonicalize_transcription(
+    text: str,
+    entries: Iterable[PronunciationEntry],
+) -> str:
+    result = text
+    ordered = sorted(
+        entries,
+        key=lambda entry: max(
+            (len(entry.term), *(len(alias) for alias in entry.aliases))
+        ),
+        reverse=True,
+    )
+    for entry in ordered:
+        alternatives = sorted(
+            (entry.term, *entry.aliases),
+            key=len,
+            reverse=True,
+        )
+        pattern = re.compile(
+            r"(?<![A-Za-z0-9])(?:"
+            + "|".join(re.escape(value) for value in alternatives)
+            + r")(?![A-Za-z0-9])",
+            re.IGNORECASE,
+        )
+        result = pattern.sub(entry.term, result)
+    return result
+
+
 def apply_pronunciations(
     text: str,
     entries: Iterable[PronunciationEntry],

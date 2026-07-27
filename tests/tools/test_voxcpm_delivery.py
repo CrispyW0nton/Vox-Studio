@@ -11,6 +11,8 @@ sys.path.insert(0, str(SIDECAR_ROOT))
 
 from vox_delivery import (  # noqa: E402
     apply_pronunciations,
+    build_transcription_hotwords,
+    canonicalize_transcription,
     delivery_distance,
     detect_delivery,
     load_pronunciations,
@@ -128,6 +130,36 @@ class DeliveryDetectionTests(unittest.TestCase):
 
 
 class PronunciationTests(unittest.TestCase):
+    def test_builds_unique_game_vocabulary_for_transcription(self) -> None:
+        entries = load_pronunciations(SIDECAR_ROOT / "pronunciations.json")
+
+        hotwords = build_transcription_hotwords(
+            entries,
+            ("Star Wars", "Ebon Hawk", "carth"),
+        )
+
+        self.assertIn("Star Wars", hotwords)
+        self.assertIn("Ebon Hawk", hotwords)
+        self.assertIn("Carth", hotwords)
+        self.assertIn("Bao-Dur", hotwords)
+        self.assertIn("Nar Shaddaa", hotwords)
+        self.assertEqual(hotwords.casefold().count("carth"), 1)
+        self.assertNotIn("Karth", hotwords)
+        self.assertNotIn("Bao Dur", hotwords)
+
+    def test_canonicalizes_known_asr_variants_only(self) -> None:
+        entries = load_pronunciations(SIDECAR_ROOT / "pronunciations.json")
+
+        result = canonicalize_transcription(
+            "Karth met Bao Dur on Tilos beside the carton.",
+            entries,
+        )
+
+        self.assertEqual(
+            result,
+            "Carth met Bao-Dur on Telos beside the carton.",
+        )
+
     def test_applies_longest_game_terms_without_changing_display_text(self) -> None:
         entries = load_pronunciations(SIDECAR_ROOT / "pronunciations.json")
         original = "Bao-Dur met Carth on Telos before leaving for Nar Shaddaa."

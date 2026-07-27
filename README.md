@@ -113,6 +113,11 @@ armed automatically and plays the character phrase through the selected
 headphones. **Live Input** is independent: turn it off to hear only the
 character result, or on to hear the unchanged mic while performing.
 
+Live transcription uses Whisper Turbo on supported GPUs and supplies a local
+KOTOR vocabulary for character, place, and ship names. If Turbo cannot load,
+Vox Studio falls back to the smaller cached English recognizer. Entering the
+script line remains the most accurate option because it bypasses transcription.
+
 Typing the line is optional. When present, it bypasses transcription for exact
 script wording. Saved results appear immediately under **Recent Takes**, where
 they can be played, starred, revealed in Explorer, or deleted. **Broadcast**

@@ -8,7 +8,7 @@
     {
       "term": "Bao-Dur",
       "spoken": "Bow-dur",
-      "aliases": ["Bao Dur"]
+      "aliases": ["Bao Dur", "BaoDur", "Bow Dur", "Bowdur"]
     },
     {
       "term": "Dantooine",
@@ -40,11 +40,13 @@
     },
     {
       "term": "Telos",
-      "spoken": "Tee-lohs"
+      "spoken": "Tee-lohs",
+      "aliases": ["Tilos", "Tee Los"]
     },
     {
       "term": "Carth",
-      "spoken": "Karth"
+      "spoken": "Karth",
+      "aliases": ["Karth"]
     },
     {
       "term": "Atton",

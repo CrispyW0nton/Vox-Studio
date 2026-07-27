@@ -25,6 +25,8 @@ from voxcpm import VoxCPM
 from vox_delivery import (
     DeliveryReading,
     apply_pronunciations,
+    build_transcription_hotwords,
+    canonicalize_transcription,
     delivery_distance,
     detect_delivery,
     load_pronunciations,
@@ -49,8 +51,18 @@ delivery_lock = threading.Lock()
 model_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="VoxCPM2")
 tts_model: VoxCPM | None = None
 transcriber: WhisperModel | None = None
+transcriber_model_name = ""
 delivery_history: deque[dict[str, float]] = deque(maxlen=24)
 pronunciations = load_pronunciations(Path(__file__).with_name("pronunciations.json"))
+transcription_hotwords = build_transcription_hotwords(
+    pronunciations,
+    (
+        "Star Wars",
+        "Knights of the Old Republic",
+        "KOTOR",
+        "Ebon Hawk",
+    ),
+)
 torch.set_float32_matmul_precision("high")
 
 
@@ -101,25 +113,50 @@ def get_tts_model() -> VoxCPM:
 
 
 def get_transcriber() -> WhisperModel:
-    global transcriber
+    global transcriber, transcriber_model_name
     with transcriber_lock:
         if transcriber is None:
             cache_root = ENGINE_ROOT / "cache" / "faster-whisper"
             cache_root.mkdir(parents=True, exist_ok=True)
-            try:
-                transcriber = WhisperModel(
-                    "base.en",
-                    device="cuda",
-                    compute_type="float16",
-                    download_root=str(cache_root),
+            preferred_model = (
+                os.environ.get("VOXSTUDIO_WHISPER_MODEL", "turbo").strip()
+                or "turbo"
+            )
+            attempts: list[tuple[str, str, str]] = []
+            if torch.cuda.is_available():
+                attempts.extend(
+                    (
+                        (preferred_model, "cuda", "float16"),
+                        ("base.en", "cuda", "float16"),
+                    )
                 )
-            except Exception:
-                transcriber = WhisperModel(
-                    "base.en",
-                    device="cpu",
-                    compute_type="int8",
-                    download_root=str(cache_root),
-                )
+            attempts.append(("base.en", "cpu", "int8"))
+            last_error: Exception | None = None
+            tried: set[tuple[str, str, str]] = set()
+            for model_name, device, compute_type in attempts:
+                attempt = (model_name, device, compute_type)
+                if attempt in tried:
+                    continue
+                tried.add(attempt)
+                try:
+                    transcriber = WhisperModel(
+                        model_name,
+                        device=device,
+                        compute_type=compute_type,
+                        download_root=str(cache_root),
+                    )
+                    transcriber_model_name = model_name
+                    break
+                except Exception as exception:
+                    last_error = exception
+                    print(
+                        f"Whisper {model_name} on {device} unavailable: {exception}",
+                        flush=True,
+                    )
+            if transcriber is None:
+                raise RuntimeError(
+                    "No Whisper transcription model could load."
+                ) from last_error
     return transcriber
 
 
@@ -152,9 +189,10 @@ def transcribe_performance(path: Path) -> str:
         beam_size=5,
         vad_filter=True,
         condition_on_previous_text=False,
+        hotwords=transcription_hotwords,
     )
     text = " ".join(segment.text.strip() for segment in segments).strip()
-    return re.sub(r"\s+", " ", text)
+    return canonicalize_transcription(re.sub(r"\s+", " ", text), pronunciations)
 
 
 def style_features(path: Path, transcript: str) -> dict[str, float]:
@@ -349,6 +387,7 @@ def health() -> JSONResponse:
             "cuda_available": torch.cuda.is_available(),
             "model_loaded": tts_model is not None,
             "transcriber_loaded": transcriber is not None,
+            "transcriber_model": transcriber_model_name,
             "profile_count": len(profile_directories()),
             "message": "VoxCPM2 phrase-live service is ready.",
         }
