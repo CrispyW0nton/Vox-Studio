@@ -351,6 +351,7 @@ def build_control_instruction(
         "calm": "Calm, even delivery.",
         "measured": "Measured, deliberate delivery.",
         "neutral": "Natural, neutral delivery.",
+        "reflective": "Warm, reflective restraint; preserve the sense of memory.",
         "emphatic": "Use only the performer's emphasis.",
         "urgent": "Match the performer's urgency without exceeding it.",
         "questioning": "Preserve the performer's questioning cadence.",

@@ -99,6 +99,34 @@ def _sounds_sarcastic(
     )
 
 
+def _sounds_reflective(
+    text: str,
+    pace: float,
+    expressiveness: float,
+    pause_ratio: float,
+    pitch_slope: float,
+    energy_slope: float,
+    terminal_pitch_delta: float,
+) -> bool:
+    lowered = re.sub(r"\s+", " ", text.casefold()).strip()
+    memory_cue = bool(
+        re.search(
+            r"\b(?:remember|used to|once|years ago|back then|in those days|"
+            r"miss|wish|hope|home|family|wife|husband|son|daughter|"
+            r"father|mother|happiness|the past)\b",
+            lowered,
+        )
+    )
+    restrained = (
+        pace <= 0.62
+        and expressiveness <= 0.72
+        and energy_slope <= 1.0
+        and terminal_pitch_delta <= 2.0
+    )
+    reflective_shape = pause_ratio >= 0.10 and pitch_slope <= -1.5
+    return restrained and (memory_cue or reflective_shape)
+
+
 def detect_delivery(
     features: Mapping[str, float],
     transcript: str,
@@ -114,18 +142,21 @@ def detect_delivery(
     dynamic_range = _value(features, "dynamic_db", 12.0)
     pause_ratio = _value(features, "pause_ratio", 0.08)
     energy_slope = _value(features, "energy_slope_db", 0.0)
+    pitch_slope = _value(features, "pitch_slope_semitones", 0.0)
     terminal_pitch_delta = _value(features, "terminal_pitch_delta", 0.0)
 
     absolute_pace = _clamp((rate - 9.0) / 12.0)
     pitch_expression = _clamp((pitch_range - 3.0) / 10.0)
     variation_expression = _clamp((pitch_variation - 1.0) / 3.5)
     dynamic_expression = _clamp((dynamic_range - 8.0) / 12.0)
-    expressiveness = (
+    phrase_expressiveness = (
         (pitch_expression * 0.45)
         + (variation_expression * 0.30)
         + (dynamic_expression * 0.25)
     )
-    pace = absolute_pace
+    phrase_pace = absolute_pace
+    pace = phrase_pace
+    expressiveness = phrase_expressiveness
 
     if len(history) >= 4:
         baseline_rate = _history_median(history, "characters_per_second", rate)
@@ -142,14 +173,25 @@ def detect_delivery(
 
     rising_energy = _clamp((energy_slope + 1.0) / 8.0)
     intensity = _clamp(
-        (expressiveness * 0.58) + (pace * 0.27) + (rising_energy * 0.15)
+        (phrase_expressiveness * 0.58)
+        + (phrase_pace * 0.27)
+        + (rising_energy * 0.15)
     )
     question = _looks_like_question(transcript, terminal_pitch_delta)
     sarcastic = _sounds_sarcastic(
         transcript,
-        expressiveness,
+        phrase_expressiveness,
         terminal_pitch_delta,
         question,
+    )
+    reflective = _sounds_reflective(
+        transcript,
+        phrase_pace,
+        phrase_expressiveness,
+        pause_ratio,
+        pitch_slope,
+        energy_slope,
+        terminal_pitch_delta,
     )
 
     if sarcastic:
@@ -165,27 +207,34 @@ def detect_delivery(
             "adding surprise or urgency."
         )
     elif (
-        (pace >= 0.70 and expressiveness >= 0.50)
-        or (pace >= 0.58 and energy_slope >= 3.0)
+        (phrase_pace >= 0.70 and phrase_expressiveness >= 0.50)
+        or (phrase_pace >= 0.58 and energy_slope >= 3.0)
     ):
         label = "urgent"
         instruction = (
             "Match the performer's quick, urgent delivery without making it louder "
             "or more emotional than the performance."
         )
-    elif expressiveness >= 0.68:
+    elif reflective:
+        label = "reflective"
+        instruction = (
+            "Preserve the performer's warm, reflective restraint and sense of "
+            "memory. Keep the pauses and tenderness without adding agitation or "
+            "melodrama."
+        )
+    elif phrase_expressiveness >= 0.68:
         label = "emphatic"
         instruction = (
             "Follow the performer's stronger emphasis and pitch movement exactly, "
             "without exaggerating either."
         )
-    elif pace <= 0.34 or pause_ratio >= 0.20:
+    elif phrase_pace <= 0.34 or pause_ratio >= 0.20:
         label = "measured"
         instruction = (
             "Keep the performer's slow, deliberate pacing and clear pauses. Do not "
             "fill the spaces or add intensity."
         )
-    elif expressiveness <= 0.36 and energy_slope < 2.0:
+    elif phrase_expressiveness <= 0.36 and energy_slope < 2.0:
         label = "calm"
         instruction = (
             "Keep the delivery calm and low-intensity. Do not add urgency, anger, "
@@ -210,7 +259,10 @@ def detect_delivery(
 _ADJACENT_DELIVERIES = {
     frozenset(("calm", "neutral")),
     frozenset(("calm", "measured")),
+    frozenset(("calm", "reflective")),
     frozenset(("neutral", "measured")),
+    frozenset(("neutral", "reflective")),
+    frozenset(("measured", "reflective")),
     frozenset(("emphatic", "urgent")),
     frozenset(("emphatic", "sarcastic")),
     frozenset(("questioning", "sarcastic")),

@@ -66,6 +66,56 @@ class DeliveryDetectionTests(unittest.TestCase):
         self.assertEqual(urgent.label, "urgent")
         self.assertEqual(questioning.label, "questioning")
 
+    def test_detects_reflective_nostalgia_without_calling_it_emphatic(self) -> None:
+        reading = detect_delivery(
+            {
+                "characters_per_second": 15.3,
+                "pitch_range_semitones": 9.0,
+                "pitch_variation_semitones": 3.6,
+                "pitch_slope_semitones": -4.7,
+                "dynamic_db": 15.5,
+                "pause_ratio": 0.08,
+                "energy_slope_db": -3.0,
+                "terminal_pitch_delta": -0.7,
+            },
+            (
+                "I wish you the best of luck. I hope you find the happiness "
+                "I once knew myself."
+            ),
+        )
+
+        self.assertEqual(reading.label, "reflective")
+        self.assertIn("without adding agitation", reading.instruction)
+
+    def test_history_cannot_change_the_current_phrase_label(self) -> None:
+        features = {
+            "characters_per_second": 16.2,
+            "pitch_range_semitones": 9.0,
+            "pitch_variation_semitones": 3.3,
+            "pitch_slope_semitones": 0.0,
+            "dynamic_db": 15.0,
+            "pause_ratio": 0.08,
+            "energy_slope_db": 0.0,
+            "terminal_pitch_delta": 0.0,
+        }
+        quiet_history = (
+            {
+                "characters_per_second": 9.0,
+                "pitch_range_semitones": 3.0,
+                "dynamic_db": 8.0,
+            },
+        ) * 8
+
+        without_history = detect_delivery(features, "We should keep moving.")
+        with_history = detect_delivery(
+            features,
+            "We should keep moving.",
+            quiet_history,
+        )
+
+        self.assertEqual(without_history.label, "neutral")
+        self.assertEqual(with_history.label, without_history.label)
+
     def test_detects_sarcasm_without_marking_sincere_praise(self) -> None:
         features = {
             "characters_per_second": 15.0,

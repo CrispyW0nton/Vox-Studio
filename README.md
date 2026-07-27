@@ -105,9 +105,10 @@ In **Live Mic**, use **Mic Check** to verify the selected input and headphone
 output with your unchanged microphone. **Performance** captures one phrase at a
 time. Local Whisper transcription supplies the words. A smoothed delivery
 detector classifies each phrase as calm, measured, neutral, emphatic, urgent,
-questioning, or sarcastic from its language, pace, dynamics, pauses, and pitch
-contour. For a trained local character, the selected LoRA adapter supplies a
-stable identity while those measurements produce detailed delivery controls.
+questioning, reflective, or sarcastic from its language, pace, dynamics,
+pauses, and pitch contour. For a trained local character, the selected LoRA
+adapter supplies a stable identity while those measurements produce detailed
+delivery controls.
 Legacy profiles fall back to matching a compatible in-character reference.
 Live Mic shows the detected delivery after each phrase. **Hear Result** is
 armed automatically and plays the character phrase through the selected

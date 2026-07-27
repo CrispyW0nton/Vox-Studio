@@ -56,10 +56,10 @@ def default_specs() -> tuple[ProfileSpec, ...]:
             ("QD3JDvJNNRSe5ZhVM9hR", "i3UvU0lrwOz34jmla36c"),
             "Carth",
             (voices / "RvcDatasets" / "CarthDecoded",),
-            voices / "RvcDatasets" / "CarthDecoded" / "nm02aacarb01000_.wav",
+            voices / "RvcDatasets" / "CarthDecoded" / "nm13aashen16004_.wav",
             (
-                "Bastila, you're alive! Finally, things are looking up. "
-                "Now we just need to figure out a way to get off this planet."
+                "I wish you the best of luck, Shen. I hope you two find the "
+                "happiness I once knew myself."
             ),
             ("nm01aacart*", "n_m1bncart*"),
             style_anchor_count=316,
