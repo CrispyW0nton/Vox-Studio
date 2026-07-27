@@ -5,7 +5,9 @@
 #include "db/TakeRepository.h"
 
 #include <filesystem>
+#include <span>
 #include <string>
+#include <vector>
 
 namespace voxstudio::core {
 
@@ -53,6 +55,11 @@ public:
                                                        const std::string& lineId,
                                                        const std::string& rvcModelId,
                                                        const audio::PcmAudioBuffer& audio) const;
+
+    [[nodiscard]] Expected<std::vector<std::filesystem::path>>
+    exportTakesAsMp3(const std::filesystem::path& projectRoot,
+                     const std::filesystem::path& destinationFolder,
+                     std::span<const db::TakeRecord> takes) const;
 
 private:
     db::TakeRepository m_repository;

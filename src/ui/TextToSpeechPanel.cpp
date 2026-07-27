@@ -10,6 +10,7 @@
 #include <QButtonGroup>
 #include <QComboBox>
 #include <QDir>
+#include <QFileDialog>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -274,6 +275,7 @@ TextToSpeechPanel::TextToSpeechPanel(QWidget* parent)
     m_takesWidget = recentTakes.get();
     m_takesWidget->setObjectName(QStringLiteral("TextToSpeechTakes"));
     m_takesWidget->setTitle(QStringLiteral("Generated Takes"));
+    m_takesWidget->setBatchExportEnabled(true);
     m_takesWidget->setMinimumWidth(330);
     mainLayout->addWidget(recentTakes.release());
     rootLayout->addLayout(mainLayout.release(), 1);
@@ -313,6 +315,8 @@ TextToSpeechPanel::TextToSpeechPanel(QWidget* parent)
             &TextToSpeechPanel::revealTake);
     connect(m_takesWidget, &TakeListWidget::deleteTakeRequested, this,
             &TextToSpeechPanel::deleteTake);
+    connect(m_takesWidget, &TakeListWidget::exportTakesRequested, this,
+            &TextToSpeechPanel::exportTakes);
 
     refreshOutputs();
     refreshVoices();
@@ -621,6 +625,31 @@ void TextToSpeechPanel::deleteTake(db::TakeRecord take) {
     }
     refreshTakes();
     setStatus(QStringLiteral("Generated take deleted."));
+}
+
+void TextToSpeechPanel::exportTakes(std::vector<db::TakeRecord> takes) {
+    if (!m_project.has_value() || takes.empty()) {
+        return;
+    }
+    const auto folder = QFileDialog::getExistingDirectory(
+        this, QStringLiteral("Export Selected Takes as MP3"),
+        QString::fromStdWString(m_project->rootPath().wstring()),
+        QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
+    if (folder.isEmpty()) {
+        return;
+    }
+
+    core::TakeManager takeManager;
+    const std::filesystem::path destination{folder.toStdWString()};
+    auto exported =
+        takeManager.exportTakesAsMp3(m_project->rootPath(), destination, takes);
+    if (!exported) {
+        setStatus(QString::fromStdString(exported.error().message));
+        return;
+    }
+    setStatus(QStringLiteral("Exported %1 take(s) as MP3 to %2.")
+                  .arg(static_cast<int>(exported.value().size()))
+                  .arg(QDir::toNativeSeparators(folder)));
 }
 
 void TextToSpeechPanel::setBusy(const bool busy) {

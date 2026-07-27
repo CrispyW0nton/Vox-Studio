@@ -2,8 +2,11 @@
 
 #include "db/ProjectRepository.h"
 #include "db/VoiceRepository.h"
+#include "ui/TakeListWidget.h"
 
+#include <QAbstractItemView>
 #include <QComboBox>
+#include <QListWidget>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QtTest/QtTest>
@@ -11,6 +14,8 @@
 #include <chrono>
 #include <filesystem>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace {
 
@@ -46,6 +51,7 @@ private slots:
     void exposesStorytellingModeAndDirectionPreview();
     void invalidatesDirectionPreviewWhenHiddenInputsChange();
     void enablesGenerationForProjectVoice();
+    void supportsSelectingAndExportingMultipleGeneratedTakes();
 };
 
 void TextToSpeechPanelTest::exposesLongFormEditorAndExclusiveDeliveryTags() {
@@ -162,6 +168,62 @@ void TextToSpeechPanelTest::enablesGenerationForProjectVoice() {
     auto* generate = panel.findChild<QPushButton*>(QStringLiteral("TextToSpeechGenerateButton"));
     QVERIFY(generate != nullptr);
     QVERIFY(generate->isEnabled());
+}
+
+void TextToSpeechPanelTest::supportsSelectingAndExportingMultipleGeneratedTakes() {
+    voxstudio::ui::TextToSpeechPanel panel;
+    panel.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&panel));
+
+    auto* takesWidget = panel.findChild<voxstudio::ui::TakeListWidget*>(
+        QStringLiteral("TextToSpeechTakes"));
+    auto* list = panel.findChild<QListWidget*>(QStringLiteral("TakeList"));
+    auto* selectAll =
+        panel.findChild<QPushButton*>(QStringLiteral("TakeSelectAllButton"));
+    auto* exportMp3 =
+        panel.findChild<QPushButton*>(QStringLiteral("TakeExportMp3Button"));
+    auto* play = panel.findChild<QPushButton*>(QStringLiteral("TakePlayButton"));
+    QVERIFY(takesWidget != nullptr);
+    QVERIFY(list != nullptr);
+    QVERIFY(selectAll != nullptr);
+    QVERIFY(exportMp3 != nullptr);
+    QVERIFY(play != nullptr);
+
+    QCOMPARE(list->selectionMode(), QAbstractItemView::MultiSelection);
+    QVERIFY(selectAll->isVisible());
+    QVERIFY(exportMp3->isVisible());
+
+    std::vector<voxstudio::db::TakeRecord> takes(3);
+    takes[0].id = "take-one";
+    takes[1].id = "take-two";
+    takes[2].id = "take-three";
+    takesWidget->setTakes(takes);
+
+    QCOMPARE(list->selectedItems().size(), 0);
+    QVERIFY(!exportMp3->isEnabled());
+    QVERIFY(!play->isEnabled());
+
+    std::vector<voxstudio::db::TakeRecord> requested;
+    connect(takesWidget, &voxstudio::ui::TakeListWidget::exportTakesRequested,
+            this, [&requested](std::vector<voxstudio::db::TakeRecord> selected) {
+                requested = std::move(selected);
+            });
+
+    selectAll->click();
+    QCOMPARE(list->selectedItems().size(), 3);
+    QVERIFY(!play->isEnabled());
+    QCOMPARE(selectAll->text(), QStringLiteral("Clear Selection"));
+
+    exportMp3->click();
+    QCOMPARE(requested.size(), 3);
+    QCOMPARE(requested[0].id, std::string{"take-one"});
+    QCOMPARE(requested[1].id, std::string{"take-two"});
+    QCOMPARE(requested[2].id, std::string{"take-three"});
+
+    selectAll->click();
+    QCOMPARE(list->selectedItems().size(), 0);
+    QCOMPARE(selectAll->text(), QStringLiteral("Select All"));
+    QVERIFY(!exportMp3->isEnabled());
 }
 
 QTEST_MAIN(TextToSpeechPanelTest)

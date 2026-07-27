@@ -146,6 +146,9 @@ changed-voice performance is saved there as MP3 and can be opened directly with
 **Open in Explorer**. When take saving is enabled, it is also stored in the
 project.
 
+The **Generated Takes** list supports multi-selection. Click individual takes or
+use **Select All**, then choose **Export as .mp3** and select a folder.
+
 The **Text to Speech** workspace generates typed dialogue with the same local
 VoxCPM2 character profiles. Long scripts are split and stitched at sentence
 boundaries. Select one delivery tag from Natural, Calm, Measured, Reflective,

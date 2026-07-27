@@ -70,6 +70,7 @@ private:
     void starTake(db::TakeRecord take);
     void revealTake(db::TakeRecord take);
     void deleteTake(db::TakeRecord take);
+    void exportTakes(std::vector<db::TakeRecord> takes);
     void setBusy(bool busy);
     void setStatus(const QString& text);
     [[nodiscard]] std::string selectedVoiceId() const;

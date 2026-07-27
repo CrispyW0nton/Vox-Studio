@@ -5,6 +5,8 @@
 #include <QLabel>
 #include <QListWidget>
 #include <QPushButton>
+#include <QSet>
+#include <QStyle>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -60,6 +62,18 @@ TakeListWidget::TakeListWidget(QWidget* parent)
     m_deleteButton->setObjectName(QStringLiteral("TakeDeleteButton"));
     rootLayout->addLayout(buttons.release());
 
+    auto batchButtons = std::make_unique<QHBoxLayout>();
+    m_selectAllButton =
+        addOwnedWidget<QPushButton>(*batchButtons, QStringLiteral("Select All"));
+    m_exportButton =
+        addOwnedWidget<QPushButton>(*batchButtons, QStringLiteral("Export as .mp3"));
+    m_selectAllButton->setObjectName(QStringLiteral("TakeSelectAllButton"));
+    m_exportButton->setObjectName(QStringLiteral("TakeExportMp3Button"));
+    m_exportButton->setIcon(style()->standardIcon(QStyle::SP_DialogSaveButton));
+    m_selectAllButton->hide();
+    m_exportButton->hide();
+    rootLayout->addLayout(batchButtons.release());
+
     m_takeList = addOwnedWidget<QListWidget>(*rootLayout);
     m_takeList->setObjectName(QStringLiteral("TakeList"));
     m_takeList->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -74,6 +88,16 @@ TakeListWidget::TakeListWidget(QWidget* parent)
     connect(m_starButton, &QPushButton::clicked, this, &TakeListWidget::starSelectedTake);
     connect(m_revealButton, &QPushButton::clicked, this, &TakeListWidget::revealSelectedTake);
     connect(m_deleteButton, &QPushButton::clicked, this, &TakeListWidget::deleteSelectedTake);
+    connect(m_selectAllButton, &QPushButton::clicked, this, [this]() {
+        if (m_takeList->selectedItems().size() == m_takeList->count()) {
+            m_takeList->clearSelection();
+        } else {
+            m_takeList->selectAll();
+        }
+    });
+    connect(m_exportButton, &QPushButton::clicked, this, &TakeListWidget::exportSelectedTakes);
+    connect(m_takeList, &QListWidget::itemSelectionChanged, this,
+            &TakeListWidget::updateActionState);
     connect(m_takeList, &QListWidget::itemDoubleClicked, this,
             [this](QListWidgetItem*) { playSelectedTake(); });
     refreshList();
@@ -88,8 +112,38 @@ void TakeListWidget::setTakes(std::vector<db::TakeRecord> takes) {
     refreshList();
 }
 
+void TakeListWidget::setBatchExportEnabled(const bool enabled) {
+    m_batchExportEnabled = enabled;
+    m_takeList->setSelectionMode(enabled ? QAbstractItemView::MultiSelection
+                                         : QAbstractItemView::SingleSelection);
+    if (enabled) {
+        m_takeList->clearSelection();
+    } else if (!m_takes.empty()) {
+        m_takeList->setCurrentRow(0);
+    }
+    m_selectAllButton->setVisible(enabled);
+    m_exportButton->setVisible(enabled);
+    updateActionState();
+}
+
 std::vector<db::TakeRecord> TakeListWidget::takes() const {
     return m_takes;
+}
+
+std::vector<db::TakeRecord> TakeListWidget::selectedTakes() const {
+    QSet<QString> selectedIds;
+    for (const auto* item : m_takeList->selectedItems()) {
+        selectedIds.insert(item->data(Qt::UserRole).toString());
+    }
+
+    std::vector<db::TakeRecord> selected;
+    selected.reserve(static_cast<std::size_t>(selectedIds.size()));
+    for (const auto& take : m_takes) {
+        if (selectedIds.contains(QString::fromStdString(take.id))) {
+            selected.push_back(take);
+        }
+    }
+    return selected;
 }
 
 void TakeListWidget::playSelectedTake() {
@@ -128,9 +182,18 @@ void TakeListWidget::deleteSelectedTake() {
     emit deleteTakeRequested(*take);
 }
 
+void TakeListWidget::exportSelectedTakes() {
+    auto selected = selectedTakes();
+    if (selected.empty()) {
+        m_statusLabel->setText(QStringLiteral("Select one or more takes to export."));
+        return;
+    }
+    emit exportTakesRequested(std::move(selected));
+}
+
 db::TakeRecord* TakeListWidget::selectedTake() {
     const auto selectedItems = m_takeList->selectedItems();
-    if (selectedItems.isEmpty()) {
+    if (selectedItems.size() != 1) {
         return nullptr;
     }
 
@@ -163,16 +226,37 @@ void TakeListWidget::refreshList() {
     }
 
     const bool hasTakes = !m_takes.empty();
-    if (hasTakes) {
+    if (hasTakes && !m_batchExportEnabled) {
         m_takeList->setCurrentRow(0);
     }
-    m_playButton->setEnabled(hasTakes);
-    m_starButton->setEnabled(hasTakes);
-    m_revealButton->setEnabled(hasTakes);
-    m_deleteButton->setEnabled(hasTakes);
-    m_statusLabel->setText(
-        hasTakes ? QStringLiteral("%1 takes.").arg(static_cast<int>(m_takes.size()))
-                 : QStringLiteral("No takes yet."));
+    updateActionState();
+}
+
+void TakeListWidget::updateActionState() {
+    const auto selectionCount = m_takeList->selectedItems().size();
+    const bool hasSingleSelection = selectionCount == 1;
+    m_playButton->setEnabled(hasSingleSelection);
+    m_starButton->setEnabled(hasSingleSelection);
+    m_revealButton->setEnabled(hasSingleSelection);
+    m_deleteButton->setEnabled(hasSingleSelection);
+    m_selectAllButton->setEnabled(m_batchExportEnabled && !m_takes.empty());
+    m_selectAllButton->setText(
+        selectionCount > 0 && selectionCount == static_cast<int>(m_takes.size())
+            ? QStringLiteral("Clear Selection")
+            : QStringLiteral("Select All"));
+    m_exportButton->setEnabled(m_batchExportEnabled && selectionCount > 0);
+
+    if (m_takes.empty()) {
+        m_statusLabel->setText(QStringLiteral("No takes yet."));
+    } else if (m_batchExportEnabled) {
+        m_statusLabel->setText(
+            QStringLiteral("%1 of %2 selected.")
+                .arg(selectionCount)
+                .arg(static_cast<int>(m_takes.size())));
+    } else {
+        m_statusLabel->setText(
+            QStringLiteral("%1 takes.").arg(static_cast<int>(m_takes.size())));
+    }
 }
 
 } // namespace voxstudio::ui

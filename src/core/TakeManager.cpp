@@ -11,6 +11,9 @@
 #include <exception>
 #include <filesystem>
 #include <string>
+#include <string_view>
+#include <system_error>
+#include <vector>
 
 namespace voxstudio::core {
 namespace {
@@ -74,6 +77,61 @@ preparedTakeAudio(const audio::PcmAudioBuffer& audio) {
     const auto seconds =
         static_cast<double>(audio.frameCount()) / static_cast<double>(audio.sampleRate);
     return static_cast<int>(std::lround(seconds * 1000.0));
+}
+
+[[nodiscard]] bool isSafeRelativePath(const std::filesystem::path& path) {
+    if (path.empty() || path.has_root_path()) {
+        return false;
+    }
+    return std::ranges::none_of(path, [](const auto& part) { return part == ".."; });
+}
+
+[[nodiscard]] std::string safeExportName(std::string_view value,
+                                         const std::string_view fallback,
+                                         const std::size_t maximumLength) {
+    std::string result;
+    result.reserve(std::min(value.size(), maximumLength));
+    bool previousWasSpace = false;
+    for (const unsigned char character : value) {
+        if (result.size() >= maximumLength) {
+            break;
+        }
+        if (std::isalnum(character) != 0 || character == '-' || character == '_') {
+            result.push_back(static_cast<char>(character));
+            previousWasSpace = false;
+        } else if (std::isspace(character) != 0 && !result.empty() && !previousWasSpace) {
+            result.push_back(' ');
+            previousWasSpace = true;
+        }
+    }
+    while (!result.empty() && result.back() == ' ') {
+        result.pop_back();
+    }
+    return result.empty() ? std::string{fallback} : result;
+}
+
+[[nodiscard]] std::filesystem::path
+uniqueExportPath(const std::filesystem::path& destinationFolder,
+                 const db::TakeRecord& take,
+                 const std::size_t index) {
+    const auto character = safeExportName(take.characterName, "Character", 32U);
+    const auto line = safeExportName(take.lineText, "Take", 72U);
+    const auto id = safeExportName(take.id, std::to_string(index + 1U), 20U);
+    const auto stem = character + " - " + line + " - " + id;
+
+    auto candidate = destinationFolder / (stem + ".mp3");
+    for (int suffix = 2; std::filesystem::exists(candidate); ++suffix) {
+        candidate = destinationFolder / (stem + " (" + std::to_string(suffix) + ").mp3");
+    }
+    return candidate;
+}
+
+void removeExportedFiles(const std::vector<std::filesystem::path>& paths) {
+    std::error_code error;
+    for (const auto& path : paths) {
+        std::filesystem::remove(path, error);
+        error.clear();
+    }
 }
 
 } // namespace
@@ -239,6 +297,67 @@ Expected<SavedTake> TakeManager::saveRvcLocalTake(const std::filesystem::path& p
                                                   const audio::PcmAudioBuffer& audio) const {
     return saveVoiceTake(m_repository, projectRoot, lineId, {}, rvcModelId, audio,
                          defaultVoiceSettings(), "rvc_local");
+}
+
+Expected<std::vector<std::filesystem::path>>
+TakeManager::exportTakesAsMp3(const std::filesystem::path& projectRoot,
+                              const std::filesystem::path& destinationFolder,
+                              const std::span<const db::TakeRecord> takes) const {
+    if (projectRoot.empty() || destinationFolder.empty() || takes.empty()) {
+        return makeError(ErrorCode::InvalidArgument,
+                         "Project, export folder, and at least one take are required.");
+    }
+
+    try {
+        std::filesystem::create_directories(destinationFolder);
+    } catch (const std::filesystem::filesystem_error& exception) {
+        return makeError(ErrorCode::FileSystemFailure, exception.what());
+    }
+
+    std::vector<std::filesystem::path> exportedPaths;
+    exportedPaths.reserve(takes.size());
+    for (std::size_t index = 0; index < takes.size(); ++index) {
+        const auto& take = takes[index];
+        const std::filesystem::path relativePath{take.filePath};
+        if (!isSafeRelativePath(relativePath)) {
+            removeExportedFiles(exportedPaths);
+            return makeError(ErrorCode::InvalidArgument,
+                             "A selected take has an invalid project path.");
+        }
+
+        const auto sourcePath = projectRoot / relativePath;
+        const auto outputPath = uniqueExportPath(destinationFolder, take, index);
+        auto extension = sourcePath.extension().string();
+        std::ranges::transform(extension, extension.begin(), [](const unsigned char character) {
+            return static_cast<char>(std::tolower(character));
+        });
+        if (extension == ".mp3") {
+            std::error_code copyError;
+            std::filesystem::copy_file(sourcePath, outputPath,
+                                       std::filesystem::copy_options::none, copyError);
+            if (copyError) {
+                std::filesystem::remove(outputPath, copyError);
+                removeExportedFiles(exportedPaths);
+                return makeError(ErrorCode::FileSystemFailure,
+                                 "A selected MP3 take could not be exported.");
+            }
+        } else {
+            auto decoded = audio::decodeAudioFile(sourcePath);
+            if (!decoded) {
+                removeExportedFiles(exportedPaths);
+                return decoded.error();
+            }
+            auto written = audio::writeMp3File(outputPath, decoded.value());
+            if (!written) {
+                std::error_code removeError;
+                std::filesystem::remove(outputPath, removeError);
+                removeExportedFiles(exportedPaths);
+                return written.error();
+            }
+        }
+        exportedPaths.push_back(outputPath);
+    }
+    return exportedPaths;
 }
 
 } // namespace voxstudio::core

@@ -141,6 +141,96 @@ TEST_CASE("take manager stores MP3 takes and restores active take", "[core][take
     CHECK_FALSE(std::filesystem::exists(savedTake.value().absolutePath));
 }
 
+TEST_CASE("take manager exports selected takes as collision-safe MP3 files",
+          "[core][takes][export]") {
+    const TemporaryDirectory directory;
+    const auto projectRoot = directory.path() / "ExportTakes.vox";
+    const auto exportFolder = directory.path() / "Exports";
+
+    const voxstudio::db::ProjectRepository projectRepository;
+    auto project = projectRepository.createProject(projectRoot, "ExportTakes");
+    REQUIRE(project.hasValue());
+
+    const voxstudio::db::VoiceRepository voiceRepository;
+    const voxstudio::db::VoiceRecord voice{
+        "voice_atton", "Atton", "ivc", "{}", "{}", "2026-01-01T00:00:00Z",
+        "2026-01-01T00:00:00Z"};
+    REQUIRE(voiceRepository.upsertVoice(projectRoot, voice).hasValue());
+
+    const voxstudio::db::ScriptRepository scriptRepository;
+    auto line = scriptRepository.createPerformanceLine(
+        projectRoot, "Atton", "voice_atton", "Pure pazaak. The table is ours.");
+    REQUIRE(line.hasValue());
+
+    voxstudio::core::TakeManager manager;
+    REQUIRE(manager
+                .saveVoxCpmTextTake(projectRoot, line.value().id, "voice_atton",
+                                    sinePcm(), "sarcastic", "storytelling")
+                .hasValue());
+    REQUIRE(manager
+                .saveVoxCpmTextTake(projectRoot, line.value().id, "voice_atton",
+                                    sinePcm(), "natural", "standard")
+                .hasValue());
+
+    const voxstudio::db::TakeRepository takeRepository;
+    auto takes = takeRepository.listTakes(projectRoot, line.value().id);
+    REQUIRE(takes.hasValue());
+    REQUIRE(takes.value().size() == 2);
+
+    auto exported = manager.exportTakesAsMp3(projectRoot, exportFolder, takes.value());
+    REQUIRE(exported.hasValue());
+    REQUIRE(exported.value().size() == 2);
+    for (std::size_t index = 0; index < exported.value().size(); ++index) {
+        CAPTURE(exported.value()[index]);
+        CHECK(exported.value()[index].extension() == ".mp3");
+        CHECK(exported.value()[index].filename().string().starts_with("Atton - Pure pazaak"));
+        CHECK(isMp3File(exported.value()[index]));
+        CHECK(std::filesystem::file_size(exported.value()[index]) ==
+              std::filesystem::file_size(projectRoot / takes.value()[index].filePath));
+    }
+
+    auto exportedAgain = manager.exportTakesAsMp3(projectRoot, exportFolder, takes.value());
+    REQUIRE(exportedAgain.hasValue());
+    REQUIRE(exportedAgain.value().size() == 2);
+    CHECK(exportedAgain.value().front() != exported.value().front());
+    CHECK(exportedAgain.value().front().stem().string().ends_with("(2)"));
+}
+
+TEST_CASE("take manager converts legacy takes and rolls back failed batch exports",
+          "[core][takes][export]") {
+    const TemporaryDirectory directory;
+    const auto projectRoot = directory.path() / "LegacyExport.vox";
+    const auto takeFolder = projectRoot / "takes" / "legacy";
+    const auto exportFolder = directory.path() / "LegacyExports";
+    std::filesystem::create_directories(takeFolder);
+
+    const auto legacyPath = takeFolder / "old-take.opus";
+    REQUIRE(voxstudio::audio::writeOpusFile(legacyPath, sinePcm()).hasValue());
+
+    voxstudio::db::TakeRecord legacyTake;
+    legacyTake.id = "old-take";
+    legacyTake.filePath = "takes/legacy/old-take.opus";
+    legacyTake.characterName = "Kreia";
+    legacyTake.lineText = "A lesson from the past.";
+
+    voxstudio::core::TakeManager manager;
+    const std::vector legacyTakes{legacyTake};
+    auto exported = manager.exportTakesAsMp3(projectRoot, exportFolder, legacyTakes);
+    REQUIRE(exported.hasValue());
+    REQUIRE(exported.value().size() == 1);
+    CHECK(isMp3File(exported.value().front()));
+
+    auto invalidTake = legacyTake;
+    invalidTake.id = "unsafe";
+    invalidTake.filePath = "../outside.mp3";
+    const std::vector mixedTakes{legacyTake, invalidTake};
+    const auto rollbackFolder = directory.path() / "RolledBack";
+    auto failed = manager.exportTakesAsMp3(projectRoot, rollbackFolder, mixedTakes);
+    REQUIRE_FALSE(failed.hasValue());
+    REQUIRE(std::filesystem::exists(rollbackFolder));
+    CHECK(std::filesystem::is_empty(rollbackFolder));
+}
+
 TEST_CASE("take manager stores STS takes as active MP3 takes", "[core][takes][sts]") {
     const TemporaryDirectory directory;
     const auto projectRoot = directory.path() / "StsTakes.vox";
