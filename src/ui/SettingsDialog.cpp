@@ -34,8 +34,7 @@ namespace {
     return QString::fromStdString(error.message);
 }
 
-[[nodiscard]] core::Expected<ConnectionTestResult, net::elevenlabs::ApiError>
-runConnectionTest(std::string apiKey) {
+[[nodiscard]] ConnectionTestOutcome runConnectionTest(std::string apiKey) {
     net::elevenlabs::Client client{std::move(apiKey)};
 
     auto user = client.getUser();
@@ -69,9 +68,18 @@ runConnectionTest(std::string apiKey) {
 } // namespace
 
 SettingsDialog::SettingsDialog(QWidget* parent)
+    : SettingsDialog(secrets::DpapiVault{}, parent) {}
+
+SettingsDialog::SettingsDialog(secrets::DpapiVault vault, QWidget* parent)
+    : SettingsDialog(std::move(vault), runConnectionTest, parent) {}
+
+SettingsDialog::SettingsDialog(secrets::DpapiVault vault,
+                               ConnectionTester connectionTester,
+                               QWidget* parent)
     : QDialog(parent)
-    , m_connectionWatcher(std::make_unique<QFutureWatcher<
-                          core::Expected<ConnectionTestResult, net::elevenlabs::ApiError>>>()) {
+    , m_vault(std::move(vault))
+    , m_connectionTester(std::move(connectionTester))
+    , m_connectionWatcher(std::make_unique<QFutureWatcher<ConnectionTestOutcome>>()) {
     setWindowTitle(QStringLiteral("Settings"));
     setModal(true);
 
@@ -79,12 +87,14 @@ SettingsDialog::SettingsDialog(QWidget* parent)
 
     auto introLabel = std::make_unique<QLabel>();
     m_introLabel = introLabel.get();
+    m_introLabel->setObjectName(QStringLiteral("SettingsIntroLabel"));
     m_introLabel->setWordWrap(true);
     m_introLabel->setVisible(false);
     rootLayout->addWidget(introLabel.release());
 
     auto apiKeyEdit = std::make_unique<QLineEdit>();
     m_apiKeyEdit = apiKeyEdit.get();
+    m_apiKeyEdit->setObjectName(QStringLiteral("SettingsApiKeyEdit"));
     m_apiKeyEdit->setEchoMode(QLineEdit::Password);
     m_apiKeyEdit->setClearButtonEnabled(true);
     m_apiKeyEdit->setPlaceholderText(QStringLiteral("ElevenLabs API key"));
@@ -92,6 +102,7 @@ SettingsDialog::SettingsDialog(QWidget* parent)
 
     auto statusLabel = std::make_unique<QLabel>();
     m_statusLabel = statusLabel.get();
+    m_statusLabel->setObjectName(QStringLiteral("SettingsStatusLabel"));
     m_statusLabel->setWordWrap(true);
     rootLayout->addWidget(statusLabel.release());
 
@@ -147,14 +158,15 @@ SettingsDialog::SettingsDialog(QWidget* parent)
     auto buttons = std::make_unique<QDialogButtonBox>(QDialogButtonBox::Save |
                                                        QDialogButtonBox::Close);
     m_saveButton = buttons->button(QDialogButtonBox::Save);
+    m_closeButton = buttons->button(QDialogButtonBox::Close);
+    m_saveButton->setObjectName(QStringLiteral("SettingsSaveButton"));
+    m_closeButton->setObjectName(QStringLiteral("SettingsCloseButton"));
     connect(m_saveButton, &QPushButton::clicked, this, &SettingsDialog::saveApiKey);
-    connect(buttons->button(QDialogButtonBox::Close), &QPushButton::clicked, this,
-            &SettingsDialog::reject);
+    connect(m_closeButton, &QPushButton::clicked, this, &SettingsDialog::reject);
     rootLayout->addWidget(buttons.release());
 
     connect(m_connectionWatcher.get(),
-            &QFutureWatcher<core::Expected<ConnectionTestResult,
-                                           net::elevenlabs::ApiError>>::finished,
+            &QFutureWatcher<ConnectionTestOutcome>::finished,
             this, &SettingsDialog::finishConnectionTest);
 
     if (m_vault.hasElevenLabsApiKey()) {
@@ -173,22 +185,28 @@ void SettingsDialog::setIntroMessage(const QString& message) {
     m_introLabel->setVisible(!message.isEmpty());
 }
 
+void SettingsDialog::requireApiKeyBeforeUse() {
+    m_apiKeyRequired = true;
+    setWindowTitle(QStringLiteral("Connect ElevenLabs"));
+    setIntroMessage(
+        QStringLiteral("Connect your own ElevenLabs API key to use Vox Studio. "
+                       "No shared key is included. Your key is encrypted for this Windows "
+                       "account and stays on this PC."));
+    m_saveButton->setText(QStringLiteral("Connect"));
+    m_closeButton->setText(QStringLiteral("Exit Vox Studio"));
+    m_apiKeyEdit->setFocus();
+}
+
 void SettingsDialog::saveApiKey() {
-    const auto apiKey = m_apiKeyEdit->text().trimmed().toStdString();
+    auto apiKey = m_apiKeyEdit->text().trimmed().toStdString();
     if (apiKey.empty()) {
         setStatusText(QStringLiteral("Enter an API key before saving."));
         return;
     }
 
-    auto stored = m_vault.storeElevenLabsApiKey(apiKey);
-    if (!stored) {
-        setStatusText(QString::fromStdString(stored.error().message));
-        return;
-    }
-
-    m_apiKeyEdit->clear();
-    setStatusText(QStringLiteral("ElevenLabs API key saved."));
-    emit apiKeySaved();
+    m_pendingApiKey = apiKey;
+    setStatusText(QStringLiteral("Validating your ElevenLabs API key..."));
+    startConnectionTest(std::move(apiKey));
 }
 
 void SettingsDialog::testConnection() {
@@ -206,15 +224,22 @@ void SettingsDialog::testConnection() {
         apiKey = std::move(loaded).value();
     }
 
-    setBusy(true);
+    m_pendingApiKey.reset();
     setStatusText(QStringLiteral("Testing ElevenLabs connection..."));
-    m_connectionWatcher->setFuture(QtConcurrent::run(runConnectionTest, std::move(apiKey)));
+    startConnectionTest(std::move(apiKey));
+}
+
+void SettingsDialog::startConnectionTest(std::string apiKey) {
+    setBusy(true);
+    m_connectionWatcher->setFuture(
+        QtConcurrent::run(m_connectionTester, std::move(apiKey)));
 }
 
 void SettingsDialog::finishConnectionTest() {
     setBusy(false);
     const auto result = m_connectionWatcher->result();
     if (!result) {
+        m_pendingApiKey.reset();
         setStatusText(apiErrorText(result.error()));
         return;
     }
@@ -226,13 +251,33 @@ void SettingsDialog::finishConnectionTest() {
             : QStringLiteral(" as %1").arg(QString::fromStdString(value.userEmail));
     const auto statusTemplate =
         QStringLiteral("Connected%1. Tier: %2. Characters: %3/%4. Voices: %5. Models: %6.");
-    setStatusText(statusTemplate
-                      .arg(accountText)
-                      .arg(QString::fromStdString(value.subscriptionTier))
-                      .arg(value.characterCount)
-                      .arg(value.characterLimit)
-                      .arg(value.voiceCount)
-                      .arg(value.modelCount));
+    const auto connectedStatus =
+        statusTemplate
+            .arg(accountText)
+            .arg(QString::fromStdString(value.subscriptionTier))
+            .arg(value.characterCount)
+            .arg(value.characterLimit)
+            .arg(value.voiceCount)
+            .arg(value.modelCount);
+
+    if (!m_pendingApiKey.has_value()) {
+        setStatusText(connectedStatus);
+        return;
+    }
+
+    auto stored = m_vault.storeValidatedElevenLabsApiKey(*m_pendingApiKey);
+    m_pendingApiKey.reset();
+    if (!stored) {
+        setStatusText(QString::fromStdString(stored.error().message));
+        return;
+    }
+
+    m_apiKeyEdit->clear();
+    setStatusText(connectedStatus + QStringLiteral(" API key saved."));
+    emit apiKeySaved();
+    if (m_apiKeyRequired) {
+        accept();
+    }
 }
 
 void SettingsDialog::saveRvcEngineMode() {

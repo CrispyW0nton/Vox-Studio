@@ -309,9 +309,10 @@ void MainWindow::promptForApiKeyIfMissing() {
     }
 
     SettingsDialog dialog{this};
-    dialog.setIntroMessage(
-        QStringLiteral("Enter an ElevenLabs API key to enable cloud voice features."));
-    dialog.exec();
+    dialog.requireApiKeyBeforeUse();
+    if (dialog.exec() != QDialog::Accepted) {
+        close();
+    }
 }
 
 } // namespace voxstudio::ui

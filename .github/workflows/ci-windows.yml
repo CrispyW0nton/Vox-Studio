@@ -5,6 +5,8 @@ on:
     branches:
       - main
       - master
+    tags:
+      - "v*"
   pull_request:
 
 env:
@@ -22,6 +24,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reject bundled credentials
+        shell: pwsh
+        run: ./tools/check_no_secrets.ps1 -ScanHistory
 
       - name: Select pinned vcpkg baseline
         shell: pwsh
@@ -66,6 +74,10 @@ jobs:
       - name: Build Release
         shell: pwsh
         run: cmake --build --preset windows-msvc-release
+
+      - name: Scan Release payload
+        shell: pwsh
+        run: ./tools/check_no_secrets.ps1 -AdditionalPaths C:\_b\voxstudio\r\Release
 
       - name: Test Release
         shell: pwsh

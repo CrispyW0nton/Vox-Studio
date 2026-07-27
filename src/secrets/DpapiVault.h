@@ -12,7 +12,8 @@ public:
     DpapiVault();
     explicit DpapiVault(std::filesystem::path secretFilePath);
 
-    [[nodiscard]] core::Expected<bool> storeElevenLabsApiKey(const std::string& apiKey) const;
+    [[nodiscard]] core::Expected<bool>
+    storeValidatedElevenLabsApiKey(const std::string& apiKey) const;
     [[nodiscard]] core::Expected<std::string> loadElevenLabsApiKey() const;
     [[nodiscard]] bool hasElevenLabsApiKey() const;
     [[nodiscard]] core::Expected<bool> deleteElevenLabsApiKey() const;
@@ -23,4 +24,3 @@ private:
 };
 
 } // namespace voxstudio::secrets
-

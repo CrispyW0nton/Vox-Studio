@@ -93,9 +93,14 @@ project data. `.gitignore` is set up to keep those out of source control.
 
 ## ElevenLabs Setup
 
-Open **Settings**, enter your ElevenLabs API key, click **Save**, then use
-**Test Connection**. The key is stored with Windows DPAPI in the current user's
-profile.
+The first launch requires each user to enter their own ElevenLabs API key.
+Vox Studio does not ship with a shared or developer key. The supplied key is
+verified with ElevenLabs before it is saved. It is then stored only on that PC
+with Windows DPAPI, encrypted for the current Windows account, and is never
+copied into the repository or app bundle.
+
+To replace a saved key later, open **Settings**, enter the new key, click
+**Save**, then use **Test Connection**.
 
 Use **Voices** to sync or clone a voice, then select **Assign to Character** to
 attach it to a character imported from a script. Vox Studio stores the voice
