@@ -4,6 +4,7 @@
 #include <sndfile.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
@@ -31,6 +32,14 @@ using SndFileHandle = std::unique_ptr<SNDFILE, decltype(&sf_close)>;
 core::Expected<PcmAudioBuffer> decodeAudioFile(const std::filesystem::path& path) {
     if (!std::filesystem::exists(path)) {
         return audioFileError("Audio file does not exist.");
+    }
+
+    auto extension = path.extension().string();
+    std::ranges::transform(extension, extension.begin(), [](const unsigned char character) {
+        return static_cast<char>(std::tolower(character));
+    });
+    if (extension == ".opus") {
+        return readOpusFile(path);
     }
 
     ma_decoder_config config = ma_decoder_config_init(ma_format_f32, 0, 0);

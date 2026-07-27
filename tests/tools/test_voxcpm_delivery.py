@@ -339,7 +339,7 @@ class PronunciationTests(unittest.TestCase):
         )
 
         self.assertIn("puh-ZAHK", result.text)
-        self.assertIn("suh-BACK", result.text)
+        self.assertIn("sah-BAK", result.text)
         self.assertIn("Gam-or-REE-ans", result.text)
         self.assertIn("Pazaak", result.matched_terms)
         self.assertIn("Sabacc", result.matched_terms)

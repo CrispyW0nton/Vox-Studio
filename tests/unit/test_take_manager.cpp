@@ -99,6 +99,10 @@ TEST_CASE("take manager stores Opus takes and restores active take", "[core][tak
     REQUIRE(decoded.hasValue());
     CHECK(decoded.value().sampleRate == 48000);
     CHECK(decoded.value().frameCount() > 0);
+    auto playbackDecoded = voxstudio::audio::decodeAudioFile(savedTake.value().absolutePath);
+    REQUIRE(playbackDecoded.hasValue());
+    CHECK(playbackDecoded.value().sampleRate == 48000);
+    CHECK(playbackDecoded.value().frameCount() > 0);
 
     const voxstudio::db::TakeRepository takeRepository;
     auto takes = takeRepository.listTakes(projectRoot, lineId);
