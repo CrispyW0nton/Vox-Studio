@@ -59,10 +59,13 @@ def default_specs() -> tuple[ProfileSpec, ...]:
         ProfileSpec(
             ("zsJfu6NHUhZIGZKxw0w0",),
             "Kreia",
+            (voices / "RvcDatasets" / "KreiaDecoded101",),
+            voices / "RvcDatasets" / "KreiaDecoded101" / "101101kreia030.wav",
             (
-                voices / "KreiaTrainingData" / "kreia_voice_hq_ivc.mp3",
-                voices / "RvcDatasets" / "Kreia",
+                "I am Kreia, and I am your rescuer, as you are mine. "
+                "Tell me, do you recall what happened?"
             ),
+            cfg_value=2.5,
         ),
         ProfileSpec(
             ("VqtR5ry1ddcv59m6Wvqg",),
