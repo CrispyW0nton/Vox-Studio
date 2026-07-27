@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -16,6 +18,28 @@ def control_identity_instruction(profile: dict) -> str:
     if str(profile.get("lora_adapter", "")).strip():
         return "Keep the trained voice stable."
     return str(profile.get("control_instruction", "")).strip()
+
+
+def text_identity_instruction(profile: dict) -> str:
+    explicit = str(profile.get("text_control_instruction", "")).strip()
+    if explicit:
+        return explicit
+
+    instruction = control_identity_instruction(profile)
+    if not instruction:
+        return ""
+
+    sentences = re.split(r"(?<=[.!?])\s+", instruction)
+    identity_sentences: list[str] = []
+    for sentence in sentences:
+        if re.search(
+            r"\b(performer|performance|microphone|recording|source voice)\b",
+            sentence,
+            flags=re.IGNORECASE,
+        ):
+            break
+        identity_sentences.append(sentence)
+    return " ".join(identity_sentences).strip()
 
 
 def resolve_profile_asset(

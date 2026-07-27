@@ -96,12 +96,26 @@ class StoryPerformanceTests(unittest.TestCase):
         self.assertEqual(plan.beats[-1].role, "payoff")
         self.assertIn("escalation", {beat.role for beat in plan.beats})
         self.assertIn("climax", {beat.role for beat in plan.beats})
+        self.assertIn("measured", {beat.delivery for beat in plan.beats})
         self.assertIn("wry", {beat.delivery for beat in plan.beats})
         self.assertIn("urgent", {beat.delivery for beat in plan.beats})
         self.assertEqual(
             plan.beats[-1].text,
             "before I even finished my drink.",
         )
+        self.assertFalse(any(beat.text.endswith("mostly") for beat in plan.beats))
+        self.assertEqual(
+            next(beat.text for beat in plan.beats if "lightspeed" in beat.text),
+            (
+                "He reached for his sidearm, I cleared leather faster than a "
+                "Republic cruiser jumping to lightspeed,"
+            ),
+        )
+        self.assertIn(
+            "and screaming gamorreans",
+            plan.beats[-2].text,
+        )
+        self.assertNotEqual(plan.beats[-2].text, "and screaming gamorreans")
         house_reveal = next(
             beat for beat in plan.beats if "house always wins" in beat.text
         )
@@ -113,9 +127,10 @@ class StoryPerformanceTests(unittest.TestCase):
 
         self.assertTrue(all(beat.direction for beat in plan.beats))
         self.assertTrue(all(beat.emphasis for beat in plan.beats))
-        self.assertTrue(all(0.08 <= beat.pause_after <= 0.55 for beat in plan.beats))
+        self.assertTrue(all(0.20 <= beat.pause_after <= 0.75 for beat in plan.beats))
         self.assertIn("one listener", plan.summary)
         self.assertIn("land", plan.beats[-1].direction.casefold())
+        self.assertIn("unhurried", plan.beats[0].direction.casefold())
         self.assertNotEqual(plan.beats[0].direction, plan.beats[-1].direction)
 
     def test_short_story_remains_a_single_complete_beat(self) -> None:

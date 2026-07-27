@@ -41,6 +41,7 @@ from vox_profiles import (
     generation_options,
     resolve_profile_asset,
     synthesis_inputs,
+    text_identity_instruction,
 )
 from vox_text import (
     STORYTELLING_MODE,
@@ -463,7 +464,7 @@ def text_control_instruction(profile: dict, delivery_tag: str) -> str:
     return " ".join(
         value
         for value in (
-            control_identity_instruction(profile),
+            text_identity_instruction(profile),
             delivery_instruction(delivery_tag),
         )
         if value
@@ -663,7 +664,7 @@ async def render_text(
                 instruction=" ".join(
                     value
                     for value in (
-                        control_identity_instruction(profile),
+                        text_identity_instruction(profile),
                         story_beat_instruction(beat, delivery_tag),
                     )
                     if value

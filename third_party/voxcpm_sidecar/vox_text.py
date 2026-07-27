@@ -25,43 +25,44 @@ DELIVERY_INSTRUCTIONS = {
 
 _STORY_ROLE_DIRECTIONS = {
     "hook": (
-        "Invite the listener into a lived memory. Begin simply and let the "
-        "specific image create the interest."
+        "Invite the listener into a lived memory. Use an unhurried opening, "
+        "and let the specific image create the interest."
     ),
     "setup": (
-        "Paint the scene clearly and conversationally. Let each new image "
-        "arrive before moving to the next thought."
+        "Paint the scene clearly at an easy conversational pace. Let each new "
+        "image arrive before moving to the next thought."
     ),
     "escalation": (
-        "Tighten the focus and build momentum without jumping ahead to the "
-        "climax."
+        "Tighten the focus and build momentum gradually. Keep the words clear "
+        "and do not rush ahead to the climax."
     ),
     "turn": (
-        "Recognize the change in circumstances, take the thought beat, and "
+        "Recognize the change in circumstances, take a real thought beat, and "
         "enjoy the reveal without overplaying it."
     ),
     "climax": (
-        "Drive through the immediate action with clear thought and forward "
-        "energy, keeping every word intelligible."
+        "Quicken slightly through the immediate action, but keep the thought "
+        "clear and every word intelligible."
     ),
     "payoff": (
-        "Land the final image as the natural payoff. Do not announce the joke "
-        "or telegraph the ending."
+        "Ease back and land the final image as the natural payoff. Leave room "
+        "for it to register without announcing the joke."
     ),
     "resolution": (
-        "Let the final thought settle with honest simplicity. Preserve the "
-        "story's established feeling instead of manufacturing a punchline."
+        "Slow enough for the final thought to settle with honest simplicity. "
+        "Preserve the story's established feeling instead of manufacturing a "
+        "punchline."
     ),
 }
 
 _ROLE_PAUSES = {
-    "hook": 0.28,
-    "setup": 0.20,
-    "escalation": 0.16,
-    "turn": 0.32,
-    "climax": 0.12,
-    "payoff": 0.42,
-    "resolution": 0.42,
+    "hook": 0.42,
+    "setup": 0.34,
+    "escalation": 0.30,
+    "turn": 0.45,
+    "climax": 0.26,
+    "payoff": 0.70,
+    "resolution": 0.64,
 }
 
 _OPERATIVE_STOP_WORDS = {
@@ -236,21 +237,23 @@ def _story_thoughts(
         while len(remaining) > maximum_characters:
             window = remaining[: maximum_characters + 1]
             preferred = [
-                match.end()
+                (match.start(), match.end())
                 for match in re.finditer(
                     r"[,;:]\s+(?=(?:and|as|before|but|except|he|i|she|"
                     r"they|because|that|thinking|until|well|when|while)\b)"
+                    r"|\s+(?=and\s+when\b)"
                     r"|\s+(?=because\b)",
                     window,
                     flags=re.IGNORECASE,
                 )
                 if match.end() >= 70
+                and not remaining[: match.start()].casefold().endswith("mostly")
             ]
             secondary = (
                 []
                 if preferred
                 else [
-                    match.end()
+                    (match.start(), match.end())
                     for match in re.finditer(r"[,;:]\s+", window)
                     if match.end() >= 85
                 ]
@@ -259,14 +262,19 @@ def _story_thoughts(
                 []
                 if preferred or secondary
                 else [
-                    match.end()
+                    (match.start(), match.end())
                     for match in re.finditer(r"\s+", window)
                     if match.end() >= 120
                 ]
             )
             candidates = preferred or secondary or fallback
             if candidates:
-                boundary = candidates[-1]
+                finishing = [
+                    end
+                    for _, end in candidates
+                    if len(remaining) - end <= maximum_characters
+                ]
+                boundary = finishing[0] if finishing else candidates[-1][1]
             else:
                 next_boundary = re.search(r"\s+", remaining[maximum_characters:])
                 if next_boundary is None:
@@ -353,6 +361,8 @@ def _story_delivery(role: str, text: str, overall: str, count: int) -> str:
         return "wry" if has_dry_humor else "guarded"
     if role == "hook":
         return "wry" if has_dry_humor or base in {"wry", "sarcastic"} else "reflective"
+    if role == "setup" and base == "natural":
+        return "measured"
     if base not in {"natural", "urgent", "sarcastic"}:
         return base
     return "natural"
@@ -408,7 +418,10 @@ def story_beat_instruction(beat: StoryBeat, overall: str = "natural") -> str:
                 "thought rather than forcing one emotion across the story."
             ),
             "Keep the character identity and vocal placement consistent. "
-            "Do not add words, announce punctuation, or over-act.",
+            "Use a relaxed, intelligible storytelling pace around 150 words per "
+            "minute. Give commas and clause endings enough air. Complete this "
+            "thought before moving on. Do not add words, announce punctuation, "
+            "or over-act.",
         )
     ).strip()
 

@@ -25,6 +25,7 @@ class PronunciationEntry:
     term: str
     spoken: str
     aliases: tuple[str, ...] = ()
+    guide: str = ""
 
 
 @dataclass(frozen=True)
@@ -501,7 +502,8 @@ def load_pronunciations(path: Path) -> tuple[PronunciationEntry, ...]:
             for alias in (str(item).strip() for item in value.get("aliases", []))
             if alias
         )
-        entries.append(PronunciationEntry(term, spoken, aliases))
+        guide = str(value.get("guide", "")).strip()
+        entries.append(PronunciationEntry(term, spoken, aliases, guide))
     return tuple(entries)
 
 

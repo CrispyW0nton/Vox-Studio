@@ -15,6 +15,7 @@ from vox_profiles import (  # noqa: E402
     generation_options,
     resolve_profile_asset,
     synthesis_inputs,
+    text_identity_instruction,
 )
 
 
@@ -70,6 +71,32 @@ class ControlInstructionTests(unittest.TestCase):
         )
 
         self.assertEqual(instruction, "Keep Atton's casual drawl.")
+
+    def test_text_mode_removes_performer_dependent_directions(self) -> None:
+        instruction = text_identity_instruction(
+            {
+                "control_instruction": (
+                    "Keep Atton's guarded youthful timbre and casual drawl. "
+                    "Follow the performer's pace and emotional intensity exactly. "
+                    "Do not add tension unless it is present."
+                )
+            }
+        )
+
+        self.assertEqual(
+            instruction,
+            "Keep Atton's guarded youthful timbre and casual drawl.",
+        )
+
+    def test_text_mode_accepts_a_dedicated_identity_instruction(self) -> None:
+        instruction = text_identity_instruction(
+            {
+                "control_instruction": "Follow the performer's pace.",
+                "text_control_instruction": "Keep the character voice stable.",
+            }
+        )
+
+        self.assertEqual(instruction, "Keep the character voice stable.")
 
 
 class ProfileAssetTests(unittest.TestCase):

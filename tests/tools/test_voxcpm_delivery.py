@@ -338,12 +338,16 @@ class PronunciationTests(unittest.TestCase):
             entries,
         )
 
-        self.assertIn("puh-ZAHK", result.text)
+        self.assertIn("puh zock", result.text)
         self.assertIn("sah-BAK", result.text)
         self.assertIn("Gam-or-REE-ans", result.text)
         self.assertIn("Pazaak", result.matched_terms)
         self.assertIn("Sabacc", result.matched_terms)
         self.assertIn("Gamorreans", result.matched_terms)
+
+        pazaak = next(entry for entry in entries if entry.term == "Pazaak")
+        self.assertEqual(pazaak.guide, "puh-ZAHK")
+        self.assertIn("Pazak", pazaak.aliases)
 
     def test_does_not_replace_inside_unrelated_words(self) -> None:
         entries = load_pronunciations(SIDECAR_ROOT / "pronunciations.json")

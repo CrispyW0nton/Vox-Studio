@@ -50,7 +50,9 @@
     },
     {
       "term": "Pazaak",
-      "spoken": "puh-ZAHK"
+      "spoken": "puh zock",
+      "guide": "puh-ZAHK",
+      "aliases": ["Pazak"]
     },
     {
       "term": "Sabacc",
