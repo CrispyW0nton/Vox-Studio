@@ -48,12 +48,11 @@ class TakeListWidget;
 struct CloudConversionResult final {
     bool success{false};
     QString message;
-    QString playbackWarning;
     QByteArray convertedPcmBytes;
     double inputSeconds{0.0};
     int sampleRate{24000};
-    int playbackDurationMs{0};
     QString delivery;
+    std::string voiceId;
 };
 
 struct LocalRvcConversionResult final {
@@ -99,6 +98,7 @@ private:
     void setBroadcastChecked(bool enabled);
     void toggleVoiceChangerPower();
     void selectQuickVoiceSlot();
+    void handleVoiceSelectionChanged(int index);
     void updateVoiceHud();
     void updateTransportState();
     void setHearSelfChecked(bool enabled);
