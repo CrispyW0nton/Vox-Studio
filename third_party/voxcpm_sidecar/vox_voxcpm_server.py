@@ -154,6 +154,7 @@ def normalized_text(text: str) -> str:
 def style_features(path: Path, transcript: str) -> dict[str, float]:
     clip, sample_rate = sf.read(path, dtype="float32", always_2d=True)
     mono = clip.mean(axis=1)
+    mono, _ = librosa.effects.trim(mono, top_db=38)
     duration = max(len(mono) / sample_rate, 0.1)
     rms = librosa.feature.rms(y=mono, frame_length=2048, hop_length=480)[0]
     rms_db = librosa.amplitude_to_db(np.maximum(rms, 1e-7), ref=np.max)
@@ -171,16 +172,53 @@ def style_features(path: Path, transcript: str) -> dict[str, float]:
         frame_length=2048,
         hop_length=480,
     )
-    finite_f0 = f0[np.isfinite(f0)]
+    frame_count = min(len(f0), len(rms_db))
+    frame_positions = np.linspace(0.0, 1.0, frame_count)
+    analysis_rms = rms_db[:frame_count]
+    voiced = (
+        np.isfinite(f0[:frame_count])
+        & (f0[:frame_count] < librosa.note_to_hz("C6") * 0.98)
+        & (analysis_rms > -38.0)
+    )
+    finite_f0 = f0[:frame_count][voiced]
+    voiced_positions = frame_positions[voiced]
     pitch_variation = (
         float(np.std(finite_f0) / max(np.mean(finite_f0), 1.0))
         if finite_f0.size
+        else 0.0
+    )
+    if finite_f0.size >= 3:
+        semitones = 12.0 * np.log2(finite_f0 / np.median(finite_f0))
+        pitch_range = float(np.percentile(semitones, 90) - np.percentile(semitones, 10))
+        pitch_slope = float(np.polyfit(voiced_positions, semitones, 1)[0])
+        opening = semitones[voiced_positions <= 0.35]
+        ending = semitones[voiced_positions >= 0.65]
+        terminal_pitch_delta = (
+            float(np.median(ending) - np.median(opening))
+            if opening.size and ending.size
+            else 0.0
+        )
+    else:
+        pitch_range = 0.0
+        pitch_slope = 0.0
+        terminal_pitch_delta = 0.0
+    pause_ratio = float(np.mean(rms_db < -32.0)) if rms_db.size else 0.0
+    first_energy = analysis_rms[frame_positions <= 0.35]
+    last_energy = analysis_rms[frame_positions >= 0.65]
+    energy_slope = (
+        float(np.median(last_energy) - np.median(first_energy))
+        if first_energy.size and last_energy.size
         else 0.0
     )
     spoken_characters = len(re.sub(r"[^A-Za-z0-9]", "", transcript))
     return {
         "dynamic_db": dynamic_db,
         "pitch_variation": pitch_variation,
+        "pitch_range_semitones": pitch_range,
+        "pitch_slope_semitones": pitch_slope,
+        "terminal_pitch_delta": terminal_pitch_delta,
+        "pause_ratio": pause_ratio,
+        "energy_slope_db": energy_slope,
         "characters_per_second": spoken_characters / duration,
     }
 
@@ -215,14 +253,41 @@ def select_style_anchor(
         features = anchor.get("features", {})
         rate = max(float(features.get("characters_per_second", 1.0)), 0.1)
         performance_rate = max(performance["characters_per_second"], 0.1)
+        question_penalty = 0.0
+        anchor_is_question = str(anchor.get("prompt_text", "")).rstrip().endswith("?")
+        if transcript.rstrip().endswith("?") != anchor_is_question:
+            question_penalty = 0.75
         return (
             abs(float(features.get("dynamic_db", 0.0)) - performance["dynamic_db"]) / 12.0
             + abs(
                 float(features.get("pitch_variation", 0.0))
                 - performance["pitch_variation"]
             )
-            * 5.0
+            * 4.0
+            + abs(
+                float(features.get("pitch_range_semitones", 0.0))
+                - performance["pitch_range_semitones"]
+            )
+            / 8.0
+            + abs(
+                float(features.get("pitch_slope_semitones", 0.0))
+                - performance["pitch_slope_semitones"]
+            )
+            / 8.0
+            + abs(
+                float(features.get("terminal_pitch_delta", 0.0))
+                - performance["terminal_pitch_delta"]
+            )
+            / 6.0
+            + abs(float(features.get("pause_ratio", 0.0)) - performance["pause_ratio"])
+            * 3.0
+            + abs(
+                float(features.get("energy_slope_db", 0.0))
+                - performance["energy_slope_db"]
+            )
+            / 12.0
             + abs(math.log(rate / performance_rate))
+            + question_penalty
         )
 
     selected = min(anchors, key=distance)
@@ -236,25 +301,79 @@ def select_style_anchor(
     )
 
 
+def build_control_instruction(profile: dict, performance_path: Path, transcript: str) -> str:
+    base = str(profile.get("control_instruction", "")).strip()
+    if not profile.get("use_controlled_cloning", False) or not base:
+        return ""
+
+    performance = style_features(performance_path, transcript)
+    anchor_features = [
+        anchor.get("features", {})
+        for anchor in profile.get("style_anchors", [])
+        if anchor.get("features")
+    ]
+
+    def median(key: str, default: float) -> float:
+        values = [float(features.get(key, default)) for features in anchor_features]
+        return float(np.median(values)) if values else default
+
+    details: list[str] = []
+    rate = performance["characters_per_second"]
+    median_rate = max(median("characters_per_second", rate), 0.1)
+    if rate > median_rate * 1.15:
+        details.append("Keep the pace quick and tightly connected.")
+    elif rate < median_rate * 0.85:
+        details.append("Use a slower, deliberate pace with clear pauses.")
+
+    energetic = (
+        performance["dynamic_db"] > median("dynamic_db", performance["dynamic_db"]) + 2.0
+        or performance["pitch_range_semitones"]
+        > median("pitch_range_semitones", performance["pitch_range_semitones"]) + 3.0
+    )
+    if energetic:
+        details.append("Project more energy and emotional intensity.")
+    else:
+        details.append("Keep the emotion controlled and conversational.")
+
+    if performance["pitch_slope_semitones"] > 2.5:
+        details.append("Let the intensity build through the line.")
+    elif performance["pitch_slope_semitones"] < -2.5:
+        details.append("Let the line settle firmly toward the ending.")
+
+    if transcript.rstrip().endswith("?"):
+        details.append("Preserve a natural questioning lift at the end.")
+
+    return " ".join((base, *details))
+
+
 def synthesize(
     spoken_text: str,
     prompt_path: Path,
     prompt_text: str,
     reference_path: Path,
     profile: dict,
+    control_instruction: str,
 ) -> tuple[np.ndarray, int]:
     with model_lock:
         model = get_tts_model()
         torch.manual_seed(42)
-        rendered = model.generate(
-            text=spoken_text,
-            prompt_wav_path=str(prompt_path),
-            prompt_text=prompt_text,
-            reference_wav_path=str(reference_path),
-            cfg_value=float(profile.get("cfg_value", 2.0)),
-            inference_timesteps=int(profile.get("inference_timesteps", 10)),
-            normalize=False,
-        )
+        cfg_value = float(profile.get("cfg_value", 2.0))
+        controlled_cfg_value = float(profile.get("controlled_cfg_value", 0.0))
+        if control_instruction and controlled_cfg_value > 0.0:
+            cfg_value = controlled_cfg_value
+        options = {
+            "text": (
+                f"({control_instruction}){spoken_text}" if control_instruction else spoken_text
+            ),
+            "reference_wav_path": str(reference_path),
+            "cfg_value": cfg_value,
+            "inference_timesteps": int(profile.get("inference_timesteps", 10)),
+            "normalize": False,
+        }
+        if not control_instruction:
+            options["prompt_wav_path"] = str(prompt_path)
+            options["prompt_text"] = prompt_text
+        rendered = model.generate(**options)
         return rendered, int(model.tts_model.sample_rate)
 
 
@@ -318,6 +437,7 @@ def render_performance(
             synthesis_prompt_path, synthesis_prompt_text, style_source = style_anchor
             synthesis_reference_path = synthesis_prompt_path
 
+        control_instruction = build_control_instruction(profile, prompt_path, spoken_text)
         rendered, output_sample_rate = model_executor.submit(
             synthesize,
             spoken_text,
@@ -325,6 +445,7 @@ def render_performance(
             synthesis_prompt_text,
             synthesis_reference_path,
             profile,
+            control_instruction,
         ).result()
 
     output = np.clip(rendered, -1.0, 1.0)
@@ -336,6 +457,7 @@ def render_performance(
         "X-Vox-Character": urllib.parse.quote(str(profile.get("name", voice_id))),
         "X-Vox-Transcript": urllib.parse.quote(spoken_text),
         "X-Vox-Style-Source": urllib.parse.quote(style_source),
+        "X-Vox-Synthesis-Mode": "controlled" if control_instruction else "continuation",
         "Cache-Control": "no-store",
     }
     return Response(output_pcm, media_type="audio/L16", headers=headers)

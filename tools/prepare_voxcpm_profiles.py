@@ -31,6 +31,10 @@ class ProfileSpec:
     exclude_name_patterns: tuple[str, ...] = ()
     cfg_value: float = 2.0
     inference_timesteps: int = 10
+    style_anchor_count: int = 6
+    control_instruction: str = ""
+    use_controlled_cloning: bool = False
+    controlled_cfg_value: float = 0.0
 
 
 def default_specs() -> tuple[ProfileSpec, ...]:
@@ -55,6 +59,13 @@ def default_specs() -> tuple[ProfileSpec, ...]:
                 "Now we just need to figure out a way to get off this planet."
             ),
             ("nm01aacart*", "n_m1bncart*"),
+            style_anchor_count=316,
+            control_instruction=(
+                "An earnest military pilot with firm projection, brisk urgency, "
+                "rising energy, emotional directness, and decisive command endings."
+            ),
+            use_controlled_cloning=True,
+            controlled_cfg_value=2.0,
         ),
         ProfileSpec(
             ("zsJfu6NHUhZIGZKxw0w0",),
@@ -77,6 +88,13 @@ def default_specs() -> tuple[ProfileSpec, ...]:
                 "while I've been in here?"
             ),
             cfg_value=1.5,
+            style_anchor_count=68,
+            control_instruction=(
+                "A guarded young man with a dry sarcastic edge, casual conversational "
+                "drawl, clipped pauses, restrained emotion, and wry downward endings."
+            ),
+            use_controlled_cloning=True,
+            controlled_cfg_value=3.0,
         ),
         ProfileSpec(
             ("0KRk8sPqojm2YNRCGKqu",),
@@ -160,6 +178,7 @@ def candidate_windows(files: list[Path]) -> list[tuple[float, int, int, Path]]:
 def build_reference(
     files: list[Path],
     primary_prompt: Path | None,
+    style_anchor_count: int,
 ) -> tuple[np.ndarray, list[tuple[float, np.ndarray, Path]]]:
     candidates = candidate_windows(files)
     if not candidates:
@@ -168,7 +187,7 @@ def build_reference(
     candidates.sort(key=lambda item: item[0])
     selected_candidates: list[tuple[float, int, int, Path]] = []
     used_paths: set[Path] = set()
-    target_count = int(REFERENCE_SECONDS / WINDOW_SECONDS)
+    target_count = max(1, style_anchor_count)
     selected: list[tuple[float, np.ndarray, Path]] = []
     if primary_prompt is not None and primary_prompt.exists():
         primary_audio = load_mono(primary_prompt)
@@ -196,7 +215,8 @@ def build_reference(
 
     gap = np.zeros(int(0.12 * SAMPLE_RATE), dtype=np.float32)
     parts: list[np.ndarray] = []
-    for _, clip, _ in selected:
+    reference_count = int(REFERENCE_SECONDS / WINDOW_SECONDS)
+    for _, clip, _ in selected[:reference_count]:
         peak = float(np.max(np.abs(clip)))
         if peak > 0.0:
             clip = clip * min(0.92 / peak, 2.5)
@@ -247,6 +267,7 @@ def transcribe_clip(clip: np.ndarray) -> str:
 
 
 def style_features(clip: np.ndarray, transcript: str) -> dict[str, float]:
+    clip, _ = librosa.effects.trim(clip, top_db=38)
     duration = max(len(clip) / SAMPLE_RATE, 0.1)
     rms = librosa.feature.rms(y=clip, frame_length=2048, hop_length=480)[0]
     rms_db = librosa.amplitude_to_db(np.maximum(rms, 1e-7), ref=np.max)
@@ -264,10 +285,42 @@ def style_features(clip: np.ndarray, transcript: str) -> dict[str, float]:
         frame_length=2048,
         hop_length=480,
     )
-    finite_f0 = f0[np.isfinite(f0)]
+    frame_count = min(len(f0), len(rms_db))
+    frame_positions = np.linspace(0.0, 1.0, frame_count)
+    analysis_rms = rms_db[:frame_count]
+    voiced = (
+        np.isfinite(f0[:frame_count])
+        & (f0[:frame_count] < librosa.note_to_hz("C6") * 0.98)
+        & (analysis_rms > -38.0)
+    )
+    finite_f0 = f0[:frame_count][voiced]
+    voiced_positions = frame_positions[voiced]
     pitch_variation = (
         float(np.std(finite_f0) / max(np.mean(finite_f0), 1.0))
         if finite_f0.size
+        else 0.0
+    )
+    if finite_f0.size >= 3:
+        semitones = 12.0 * np.log2(finite_f0 / np.median(finite_f0))
+        pitch_range = float(np.percentile(semitones, 90) - np.percentile(semitones, 10))
+        pitch_slope = float(np.polyfit(voiced_positions, semitones, 1)[0])
+        opening = semitones[voiced_positions <= 0.35]
+        ending = semitones[voiced_positions >= 0.65]
+        terminal_pitch_delta = (
+            float(np.median(ending) - np.median(opening))
+            if opening.size and ending.size
+            else 0.0
+        )
+    else:
+        pitch_range = 0.0
+        pitch_slope = 0.0
+        terminal_pitch_delta = 0.0
+    pause_ratio = float(np.mean(rms_db < -32.0)) if rms_db.size else 0.0
+    first_energy = analysis_rms[frame_positions <= 0.35]
+    last_energy = analysis_rms[frame_positions >= 0.65]
+    energy_slope = (
+        float(np.median(last_energy) - np.median(first_energy))
+        if first_energy.size and last_energy.size
         else 0.0
     )
     spoken_characters = len(re.sub(r"[^A-Za-z0-9]", "", transcript))
@@ -275,6 +328,11 @@ def style_features(clip: np.ndarray, transcript: str) -> dict[str, float]:
         "duration_seconds": round(duration, 4),
         "dynamic_db": round(dynamic_db, 4),
         "pitch_variation": round(pitch_variation, 6),
+        "pitch_range_semitones": round(pitch_range, 4),
+        "pitch_slope_semitones": round(pitch_slope, 4),
+        "terminal_pitch_delta": round(terminal_pitch_delta, 4),
+        "pause_ratio": round(pause_ratio, 6),
+        "energy_slope_db": round(energy_slope, 4),
         "characters_per_second": round(spoken_characters / duration, 4),
     }
 
@@ -285,7 +343,11 @@ def write_profile(root: Path, spec: ProfileSpec) -> None:
         print(f"skip {spec.name}: no local source audio")
         return
 
-    reference, selected = build_reference(files, spec.primary_prompt)
+    reference, selected = build_reference(
+        files,
+        spec.primary_prompt,
+        spec.style_anchor_count,
+    )
     style_anchors: list[dict] = []
     style_clips: list[np.ndarray] = []
     for index, (_, clip, source) in enumerate(selected):
@@ -325,7 +387,7 @@ def write_profile(root: Path, spec: ProfileSpec) -> None:
                 subtype="PCM_16",
             )
         profile = {
-            "format_version": 2,
+            "format_version": 3,
             "voice_id": voice_id,
             "name": spec.name,
             "engine": "VoxCPM2",
@@ -336,6 +398,9 @@ def write_profile(root: Path, spec: ProfileSpec) -> None:
             "style_anchors": style_anchors,
             "cfg_value": spec.cfg_value,
             "inference_timesteps": spec.inference_timesteps,
+            "control_instruction": spec.control_instruction,
+            "use_controlled_cloning": spec.use_controlled_cloning,
+            "controlled_cfg_value": spec.controlled_cfg_value,
         }
         (profile_root / "profile.json").write_text(
             json.dumps(profile, indent=2),

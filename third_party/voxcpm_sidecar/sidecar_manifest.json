@@ -4,6 +4,6 @@
   "model": "openbmb/VoxCPM2",
   "launcher": "launch_voxcpm_sidecar.cmd",
   "server": "vox_voxcpm_server.py",
-  "profile_format": 2,
-  "notes": "Uses performer acoustics to select a transcribed in-character style anchor while keeping synthesis in the target identity."
+  "profile_format": 3,
+  "notes": "Matches complete in-character anchors using pace, dynamics, pauses, pitch contour, and sentence shape, with optional character-specific controlled cloning."
 }

@@ -103,13 +103,14 @@ voice model weights exportable.
 In **Live Mic**, use **Mic Check** to verify the selected input and headphone
 output with your unchanged microphone. **Performance** captures one phrase at a
 time. Local Whisper transcription supplies the words. The recording's pace,
-pitch movement, and dynamics select the closest clean delivery reference from
-the character profile; that in-character reference supplies both voice identity
-and natural speaking style. This is delivery-style matching, not sample-exact
-prosody transfer. **Hear Result** is armed automatically and plays the character
-phrase through the selected headphones. **Live Input** is independent: turn it
-off to hear only the character result, or on to hear the unchanged mic while
-performing.
+dynamics, pauses, pitch contour, and sentence shape select the closest clean
+delivery reference from the character profile. Profiles can also use VoxCPM2
+controlled cloning to steer the selected voice toward character-specific
+mannerisms and the performance's energy. This is delivery-style matching, not
+sample-exact prosody transfer. **Hear Result** is armed automatically and plays
+the character phrase through the selected headphones. **Live Input** is
+independent: turn it off to hear only the character result, or on to hear the
+unchanged mic while performing.
 
 Typing the line is optional. When present, it bypasses transcription for exact
 script wording. Saved results appear immediately under **Recent Takes**, where
