@@ -331,9 +331,19 @@ def build_control_instruction(profile: dict, performance_path: Path, transcript:
         > median("pitch_range_semitones", performance["pitch_range_semitones"]) + 3.0
     )
     if energetic:
-        details.append("Project more energy and emotional intensity.")
+        details.append(
+            str(
+                profile.get("energetic_instruction")
+                or "Project more energy and emotional intensity."
+            )
+        )
     else:
-        details.append("Keep the emotion controlled and conversational.")
+        details.append(
+            str(
+                profile.get("conversational_instruction")
+                or "Keep the emotion controlled and conversational."
+            )
+        )
 
     if performance["pitch_slope_semitones"] > 2.5:
         details.append("Let the intensity build through the line.")

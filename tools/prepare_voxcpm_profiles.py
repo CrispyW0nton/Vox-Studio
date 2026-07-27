@@ -35,6 +35,8 @@ class ProfileSpec:
     control_instruction: str = ""
     use_controlled_cloning: bool = False
     controlled_cfg_value: float = 0.0
+    energetic_instruction: str = ""
+    conversational_instruction: str = ""
 
 
 def default_specs() -> tuple[ProfileSpec, ...]:
@@ -99,7 +101,29 @@ def default_specs() -> tuple[ProfileSpec, ...]:
         ProfileSpec(
             ("0KRk8sPqojm2YNRCGKqu",),
             "Bao-Dur",
-            (voices / "BaoDurTrainingData" / "baodur_voice_cleaned.mp3",),
+            (voices / "RvcDatasets" / "BaoDurDecoded",),
+            voices / "RvcDatasets" / "BaoDurDecoded" / "gblbaodur003.wav",
+            (
+                "Uh, General, I think you've got more important things to worry "
+                "about right now than talking to me."
+            ),
+            cfg_value=1.5,
+            style_anchor_count=328,
+            control_instruction=(
+                "A soft-spoken veteran technician with a low breathy near-whisper, "
+                "measured pacing, gentle deliberate emphasis, subdued introspection, "
+                "restrained fatigue, and calm downward endings. Keep intensity "
+                "internal and avoid booming projection."
+            ),
+            use_controlled_cloning=True,
+            controlled_cfg_value=1.5,
+            energetic_instruction=(
+                "Express urgency through tighter pacing and firmer emphasis while "
+                "remaining quiet and inward."
+            ),
+            conversational_instruction=(
+                "Keep the emotion subdued, reflective, and conversational."
+            ),
         ),
         ProfileSpec(
             ("ubAJyJphmwzPmKNsS9W6",),
@@ -401,6 +425,8 @@ def write_profile(root: Path, spec: ProfileSpec) -> None:
             "control_instruction": spec.control_instruction,
             "use_controlled_cloning": spec.use_controlled_cloning,
             "controlled_cfg_value": spec.controlled_cfg_value,
+            "energetic_instruction": spec.energetic_instruction,
+            "conversational_instruction": spec.conversational_instruction,
         }
         (profile_root / "profile.json").write_text(
             json.dumps(profile, indent=2),
@@ -419,9 +445,23 @@ def main() -> None:
         type=Path,
         default=Path(os.environ["LOCALAPPDATA"]) / "VoxStudio" / "voxcpm_profiles",
     )
+    parser.add_argument(
+        "--voice",
+        action="append",
+        default=[],
+        help="Build only the named profile; may be supplied more than once.",
+    )
     arguments = parser.parse_args()
     arguments.output.mkdir(parents=True, exist_ok=True)
-    for spec in default_specs():
+    requested_voices = {name.casefold() for name in arguments.voice}
+    specs = tuple(
+        spec
+        for spec in default_specs()
+        if not requested_voices or spec.name.casefold() in requested_voices
+    )
+    if arguments.voice and not specs:
+        parser.error(f"no matching profile for: {', '.join(arguments.voice)}")
+    for spec in specs:
         try:
             write_profile(arguments.output, spec)
         except Exception as exception:

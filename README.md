@@ -141,6 +141,11 @@ character profiles from available source libraries with:
   tools\prepare_voxcpm_profiles.py
 ```
 
+Pass `--voice "Bao-Dur"` (or another character name) to rebuild one profile.
+Bao-Dur uses the decoded `GBL\BAODUR` conversation library so the live matcher
+can choose among his quiet, reflective, urgent, and technical delivery styles
+instead of relying on a single stitched reference recording.
+
 The source tree contains the service and profile tooling, not model weights or
 licensed voice audio. Those remain local user data.
 
