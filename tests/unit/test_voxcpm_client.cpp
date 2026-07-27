@@ -32,6 +32,7 @@ public:
         response.latencyMs = 731;
         response.delivery = "calm";
         response.pronunciations = "Telos";
+        response.adapter = "trained";
         return response;
     }
 
@@ -75,6 +76,7 @@ TEST_CASE("VoxCPM2 client sends delivery audio and returns character PCM", "[vox
     CHECK(rendered.value().latencyMs == 731);
     CHECK(rendered.value().delivery == "calm");
     CHECK(rendered.value().pronunciations == "Telos");
+    CHECK(rendered.value().adapter == "trained");
     CHECK(view->renderPath == "/render_performance");
     CHECK(view->request.voiceId == "carth");
 }

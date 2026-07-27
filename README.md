@@ -18,8 +18,8 @@ and local RVC voice conversion.
 - Saves ElevenLabs API keys with Windows DPAPI, not plaintext config files.
 - Imports scripts from plain text, CSV, Fountain, Ren'Py, and Yarn-style JSON.
 - Manages voices, character assignments, takes, and dialogue timelines.
-- Uses microphone wording and delivery cues to choose a clean, transcribed
-  VoxCPM2 style reference that remains in the selected character's voice.
+- Uses local VoxCPM2 character adapters to keep a selected voice stable while
+  applying mic-derived timing, emphasis, and emotional controls.
 - Provides TTS, phrase-live VoxCPM2, live microphone, and local RVC UI paths.
 - Includes native ONNX RVC plumbing for future in-process inference validation.
 
@@ -84,6 +84,7 @@ Important subfolders:
 - `rvc_onnx_models\` - native ONNX RVC model bundles.
 - `engines\voxcpm2\` - isolated VoxCPM2 Python/GPU runtime and model cache.
 - `voxcpm_profiles\` - local character identity references and profile metadata.
+- `voxcpm_training\` - prepared 16 kHz manifests and local LoRA checkpoints.
 - `voxcpm_sidecar\` - phrase-live transcription and rendering service.
 
 Do not commit API keys, voice models, ONNX models, signing keys, or generated
@@ -105,10 +106,10 @@ output with your unchanged microphone. **Performance** captures one phrase at a
 time. Local Whisper transcription supplies the words. A smoothed delivery
 detector classifies each phrase as calm, measured, neutral, emphatic, urgent,
 questioning, or sarcastic from its language, pace, dynamics, pauses, and pitch
-contour. It then selects a compatible in-character reference and explicitly
-prevents the character profile from adding emotion that was not present in the
-performance. Live Mic shows the detected delivery after each phrase. This is
-delivery-style matching, not sample-exact prosody transfer. **Hear Result** is
+contour. For a trained local character, the selected LoRA adapter supplies a
+stable identity while those measurements produce detailed delivery controls.
+Legacy profiles fall back to matching a compatible in-character reference.
+Live Mic shows the detected delivery after each phrase. **Hear Result** is
 armed automatically and plays the character phrase through the selected
 headphones. **Live Input** is independent: turn it off to hear only the
 character result, or on to hear the unchanged mic while performing.
@@ -137,20 +138,40 @@ The local service listens on `http://127.0.0.1:18990`. Each profile lives under:
 %LOCALAPPDATA%\VoxStudio\voxcpm_profiles\<voice_id>\
 ```
 
-`reference.wav` contains a curated identity reference. The `styles\` folder
-contains clean transcribed delivery anchors, and `profile.json` records their
-source coverage, acoustic features, and inference settings. Rebuild the local
-character profiles from available source libraries with:
+`reference.wav` contains one clean identity reference for trained characters.
+The optional `lora\` folder contains the character adapter, `styles\` contains
+fallback delivery anchors, and `profile.json` records source coverage and
+inference settings.
+
+Prepare exact Carth or Bao-Dur dialogue/audio pairs from an installed game:
+
+```powershell
+& "$env:LOCALAPPDATA\VoxStudio\engines\voxcpm2\.venv\Scripts\python.exe" `
+  tools\prepare_voxcpm_finetune.py --voice carth
+```
+
+The generated manifest and training config stay under
+`%LOCALAPPDATA%\VoxStudio\voxcpm_training\`. Run the official VoxCPM2 trainer
+from a local VoxCPM 2.0.3 source checkout:
+
+```powershell
+$voxCpmSource = "$env:LOCALAPPDATA\VoxStudio\engines\voxcpm2\source-2.0.3"
+& "$env:LOCALAPPDATA\VoxStudio\engines\voxcpm2\.venv\Scripts\python.exe" `
+  "$voxCpmSource\scripts\train_voxcpm_finetune.py" `
+  --config_path "$env:LOCALAPPDATA\VoxStudio\voxcpm_training\carth\train_lora.yaml"
+```
+
+Then rebuild the profiles:
 
 ```powershell
 & "$env:LOCALAPPDATA\VoxStudio\engines\voxcpm2\.venv\Scripts\python.exe" `
   tools\prepare_voxcpm_profiles.py
 ```
 
-Pass `--voice "Bao-Dur"` (or another character name) to rebuild one profile.
-Bao-Dur uses the decoded `GBL\BAODUR` conversation library so the live matcher
-can choose among his quiet, reflective, urgent, and technical delivery styles
-instead of relying on a single stitched reference recording.
+Pass `--voice "Carth"` or `--voice "Bao-Dur"` to rebuild one profile. The
+builder installs a completed local adapter into the matching voice profile.
+Licensed game audio, prepared manifests, and adapter weights remain local and
+are never included in the repository.
 
 `third_party\voxcpm_sidecar\pronunciations.json` contains local synthesis-only
 respellings for character and place names such as Carth, Atton, Bao-Dur, Kreia,

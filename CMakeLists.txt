@@ -428,6 +428,11 @@ if(BUILD_TESTING)
                     "${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/test_voxcpm_delivery.py"
         )
         add_test(
+            NAME VoxStudioVoxCpmProfileTests
+            COMMAND ${Python3_EXECUTABLE}
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/test_voxcpm_profiles.py"
+        )
+        add_test(
             NAME VoxStudioKotorAudioDatasetTests
             COMMAND ${Python3_EXECUTABLE}
                     "${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/test_kotor_audio_dataset.py"

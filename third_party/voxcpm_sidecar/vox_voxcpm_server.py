@@ -22,6 +22,7 @@ from fastapi.responses import JSONResponse, Response
 from faster_whisper import WhisperModel
 from scipy.signal import medfilt
 from voxcpm import VoxCPM
+from voxcpm.model.voxcpm2 import LoRAConfig
 from vox_delivery import (
     DeliveryReading,
     apply_pronunciations,
@@ -30,6 +31,12 @@ from vox_delivery import (
     delivery_distance,
     detect_delivery,
     load_pronunciations,
+)
+from vox_profiles import (
+    activate_lora,
+    generation_options,
+    resolve_profile_asset,
+    synthesis_inputs,
 )
 
 
@@ -50,6 +57,7 @@ transcriber_lock = threading.Lock()
 delivery_lock = threading.Lock()
 model_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="VoxCPM2")
 tts_model: VoxCPM | None = None
+active_lora: dict[str, object] = {"loaded_signature": None, "enabled": False}
 transcriber: WhisperModel | None = None
 transcriber_model_name = ""
 delivery_history: deque[dict[str, float]] = deque(maxlen=24)
@@ -108,6 +116,14 @@ def get_tts_model() -> VoxCPM:
             cache_dir=str(ENGINE_ROOT / "cache"),
             optimize=True,
             device="cuda" if torch.cuda.is_available() else "cpu",
+            lora_config=LoRAConfig(
+                enable_lm=True,
+                enable_dit=True,
+                enable_proj=False,
+                r=32,
+                alpha=32,
+                dropout=0.0,
+            ),
         )
     return tts_model
 
@@ -330,20 +346,58 @@ def build_control_instruction(
     if not profile.get("use_controlled_cloning", False) or not base:
         return ""
 
-    details = [
-        "Treat the reference clip as voice identity only, not as an emotional "
-        "performance.",
-        delivery.instruction,
-    ]
-    if performance["pitch_slope_semitones"] > 4.0:
+    delivery_controls = {
+        "calm": "Calm, even delivery.",
+        "measured": "Measured, deliberate delivery.",
+        "neutral": "Natural, neutral delivery.",
+        "emphatic": "Use only the performer's emphasis.",
+        "urgent": "Match the performer's urgency without exceeding it.",
+        "questioning": "Preserve the performer's questioning cadence.",
+        "sarcastic": "Dry, controlled sarcasm; no broad comedy.",
+    }
+    details = [delivery_controls.get(delivery.label, "Match the performer's delivery.")]
+    if performance["pitch_slope_semitones"] > 3.0:
         details.append(
-            "Follow the performer's gradual rise through the line without exceeding it."
+            "Gradual rise through the line."
         )
-    elif performance["pitch_slope_semitones"] < -4.0:
-        details.append("Follow the performer's settling cadence toward the ending.")
+    elif performance["pitch_slope_semitones"] < -3.0:
+        details.append("Settling cadence toward the ending.")
     if performance["pause_ratio"] >= 0.18:
-        details.append("Retain the performer's meaningful pauses.")
-    details.append("Never raise the emotional intensity above the performer.")
+        details.append("Keep the meaningful pauses.")
+    elif performance["pause_ratio"] <= 0.05:
+        details.append("Connected phrasing; do not invent pauses.")
+    pace = performance["characters_per_second"]
+    if pace >= 20.0:
+        details.append("Fast pace.")
+    elif pace >= 16.0:
+        details.append("Brisk pace.")
+    elif pace <= 10.0:
+        details.append("Slow pace.")
+    elif pace <= 13.0:
+        details.append("Deliberate pace.")
+    else:
+        details.append("Moderate pace.")
+    pitch_range = performance["pitch_range_semitones"]
+    if pitch_range >= 10.0:
+        details.append("Wide pitch movement.")
+    elif pitch_range >= 6.0:
+        details.append("Moderate pitch movement.")
+    else:
+        details.append("Restrained pitch movement.")
+    if performance["dynamic_db"] >= 16.0:
+        details.append("Strong dynamic contrast.")
+    elif performance["dynamic_db"] >= 10.0:
+        details.append("Natural dynamic contrast.")
+    elif performance["dynamic_db"] <= 8.0:
+        details.append("Even volume.")
+    if performance["energy_slope_db"] >= 3.0:
+        details.append("Build energy toward the ending.")
+    elif performance["energy_slope_db"] <= -3.0:
+        details.append("Settle the energy toward the ending.")
+    if performance["terminal_pitch_delta"] >= 2.5:
+        details.append("Rising ending.")
+    elif performance["terminal_pitch_delta"] <= -2.5:
+        details.append("Falling ending.")
     return " ".join((base, *details))
 
 
@@ -354,26 +408,20 @@ def synthesize(
     reference_path: Path,
     profile: dict,
     control_instruction: str,
+    lora_path: Path | None,
 ) -> tuple[np.ndarray, int]:
     with model_lock:
         model = get_tts_model()
+        activate_lora(model, lora_path, active_lora)
         torch.manual_seed(42)
-        cfg_value = float(profile.get("cfg_value", 2.0))
-        controlled_cfg_value = float(profile.get("controlled_cfg_value", 0.0))
-        if control_instruction and controlled_cfg_value > 0.0:
-            cfg_value = controlled_cfg_value
-        options = {
-            "text": (
-                f"({control_instruction}){spoken_text}" if control_instruction else spoken_text
-            ),
-            "reference_wav_path": str(reference_path),
-            "cfg_value": cfg_value,
-            "inference_timesteps": int(profile.get("inference_timesteps", 10)),
-            "normalize": False,
-        }
-        if not control_instruction:
-            options["prompt_wav_path"] = str(prompt_path)
-            options["prompt_text"] = prompt_text
+        options = generation_options(
+            spoken_text,
+            prompt_path,
+            prompt_text,
+            reference_path,
+            profile,
+            control_instruction,
+        )
         rendered = model.generate(**options)
         return rendered, int(model.tts_model.sample_rate)
 
@@ -410,6 +458,10 @@ def render_performance(
         raise HTTPException(status_code=400, detail="Performance phrase is too short.")
 
     profile, profile_dir, reference_path = load_profile(voice_id)
+    try:
+        lora_path = resolve_profile_asset(profile, profile_dir, "lora_adapter")
+    except ValueError as exception:
+        raise HTTPException(status_code=500, detail=str(exception)) from exception
     started = time.perf_counter()
     with tempfile.TemporaryDirectory(prefix="voxstudio_voxcpm_") as temp_dir:
         prompt_path = Path(temp_dir) / "performance.wav"
@@ -426,39 +478,47 @@ def render_performance(
 
         performance = style_features(prompt_path, spoken_text)
         delivery = performance_delivery(performance, spoken_text)
-        style_anchor = select_style_anchor(
-            profile,
-            profile_dir,
-            performance,
-            delivery,
-            spoken_text,
+        style_anchor = (
+            None
+            if profile.get("use_stable_character_identity", False)
+            else select_style_anchor(
+                profile,
+                profile_dir,
+                performance,
+                delivery,
+                spoken_text,
+            )
         )
-        if style_anchor is None:
-            synthesis_prompt_path = prompt_path
-            synthesis_prompt_text = spoken_text
-            synthesis_reference_path = reference_path
-            style_source = "performer"
-        else:
-            synthesis_prompt_path, synthesis_prompt_text, style_source = style_anchor
-            synthesis_reference_path = synthesis_prompt_path
+        inputs = synthesis_inputs(
+            profile,
+            prompt_path,
+            spoken_text,
+            reference_path,
+            style_anchor,
+        )
 
         control_instruction = build_control_instruction(profile, performance, delivery)
-        if style_anchor is not None and delivery.label in {
-            "emphatic",
-            "urgent",
-            "questioning",
-            "sarcastic",
-        }:
+        if (
+            style_anchor is not None
+            and not profile.get("use_stable_character_identity", False)
+            and delivery.label in {
+                "emphatic",
+                "urgent",
+                "questioning",
+                "sarcastic",
+            }
+        ):
             control_instruction = ""
         pronunciation = apply_pronunciations(spoken_text, pronunciations)
         rendered, output_sample_rate = model_executor.submit(
             synthesize,
             pronunciation.text,
-            synthesis_prompt_path,
-            synthesis_prompt_text,
-            synthesis_reference_path,
+            inputs.prompt_path,
+            inputs.prompt_text,
+            inputs.reference_path,
             profile,
             control_instruction,
+            lora_path,
         ).result()
 
     output = np.clip(rendered, -1.0, 1.0)
@@ -469,12 +529,13 @@ def render_performance(
         "X-Vox-Latency-Ms": str(latency_ms),
         "X-Vox-Character": urllib.parse.quote(str(profile.get("name", voice_id))),
         "X-Vox-Transcript": urllib.parse.quote(spoken_text),
-        "X-Vox-Style-Source": urllib.parse.quote(style_source),
+        "X-Vox-Style-Source": urllib.parse.quote(inputs.style_source),
         "X-Vox-Delivery": delivery.label,
         "X-Vox-Pronunciations": urllib.parse.quote(
             ", ".join(pronunciation.matched_terms)
         ),
         "X-Vox-Synthesis-Mode": "controlled" if control_instruction else "continuation",
+        "X-Vox-Adapter": "trained" if lora_path else "base",
         "Cache-Control": "no-store",
     }
     return Response(output_pcm, media_type="audio/L16", headers=headers)

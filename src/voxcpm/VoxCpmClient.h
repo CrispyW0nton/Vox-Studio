@@ -18,6 +18,7 @@ struct VoxCpmHttpResponse final {
     int latencyMs{0};
     std::string delivery;
     std::string pronunciations;
+    std::string adapter;
 };
 
 struct VoxCpmRenderRequest final {
@@ -37,6 +38,7 @@ struct VoxCpmRenderResult final {
     int latencyMs{0};
     std::string delivery;
     std::string pronunciations;
+    std::string adapter;
 };
 
 struct VoxCpmHealth final {

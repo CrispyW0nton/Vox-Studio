@@ -226,13 +226,17 @@ void appendPlaybackWarning(QString& warning, const QString& route, const core::E
     if (!delivery.isEmpty()) {
         delivery.front() = delivery.front().toUpper();
     }
-    auto message =
-        delivery.isEmpty()
-            ? QStringLiteral("VoxCPM2 character phrase ready in %1 ms.")
-                  .arg(rendered.value().latencyMs)
-            : QStringLiteral("Matched %1 delivery in %2 ms.")
-                  .arg(delivery)
-                  .arg(rendered.value().latencyMs);
+    const auto trainedAdapter = rendered.value().adapter == "trained";
+    auto message = delivery.isEmpty()
+                       ? QStringLiteral("%1 character phrase ready in %2 ms.")
+                             .arg(trainedAdapter ? QStringLiteral("Trained")
+                                                 : QStringLiteral("VoxCPM2"))
+                             .arg(rendered.value().latencyMs)
+                       : QStringLiteral("%1 matched %2 delivery in %3 ms.")
+                             .arg(trainedAdapter ? QStringLiteral("Trained character")
+                                                 : QStringLiteral("Character"))
+                             .arg(delivery)
+                             .arg(rendered.value().latencyMs);
     if (!rendered.value().pronunciations.empty()) {
         message += QStringLiteral(" Pronunciation guide applied.");
     }

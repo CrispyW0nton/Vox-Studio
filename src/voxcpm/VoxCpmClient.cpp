@@ -97,6 +97,7 @@ CprVoxCpmHttpTransport::postPerformance(const std::string& path,
         result.latencyMs = integerHeader(response.header, "x-vox-latency-ms", 0);
         result.delivery = headerValue(response.header, "x-vox-delivery");
         result.pronunciations = headerValue(response.header, "x-vox-pronunciations");
+        result.adapter = headerValue(response.header, "x-vox-adapter");
         return result;
     } catch (const std::exception& exception) {
         return core::makeError(core::ErrorCode::FileSystemFailure, exception.what());
@@ -178,6 +179,7 @@ VoxCpmClient::renderPerformance(const VoxCpmRenderRequest& request) const {
     result.latencyMs = response.value().latencyMs;
     result.delivery = response.value().delivery;
     result.pronunciations = response.value().pronunciations;
+    result.adapter = response.value().adapter;
     return result;
 }
 

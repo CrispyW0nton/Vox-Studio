@@ -5,6 +5,7 @@ import json
 import math
 import os
 import re
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -35,6 +36,8 @@ class ProfileSpec:
     control_instruction: str = ""
     use_controlled_cloning: bool = False
     controlled_cfg_value: float = 0.0
+    lora_training_name: str = ""
+    use_stable_character_identity: bool = False
 
 
 def default_specs() -> tuple[ProfileSpec, ...]:
@@ -61,13 +64,13 @@ def default_specs() -> tuple[ProfileSpec, ...]:
             ("nm01aacart*", "n_m1bncart*"),
             style_anchor_count=316,
             control_instruction=(
-                "Keep Carth's clear, earnest military timbre and grounded "
-                "conversational resonance. Follow the performer's pace, pauses, "
-                "emphasis, and emotional intensity exactly. Do not add urgency, "
-                "anger, or excitement."
+                "Keep Carth's clear, earnest military timbre. Match the "
+                "performer without adding intensity."
             ),
             use_controlled_cloning=True,
             controlled_cfg_value=2.0,
+            lora_training_name="carth",
+            use_stable_character_identity=True,
         ),
         ProfileSpec(
             ("zsJfu6NHUhZIGZKxw0w0",),
@@ -92,10 +95,8 @@ def default_specs() -> tuple[ProfileSpec, ...]:
             cfg_value=1.5,
             style_anchor_count=68,
             control_instruction=(
-                "Keep Atton's guarded youthful timbre, casual drawl, and clipped "
-                "phrasing. Follow the performer's pace, pauses, emphasis, and "
-                "emotional intensity exactly. Do not add sarcasm, amusement, or "
-                "tension unless it is present."
+                "Keep Atton's guarded youthful timbre and casual drawl. Match "
+                "the performer without adding sarcasm or tension."
             ),
             use_controlled_cloning=True,
             controlled_cfg_value=3.0,
@@ -112,13 +113,13 @@ def default_specs() -> tuple[ProfileSpec, ...]:
             cfg_value=1.5,
             style_anchor_count=328,
             control_instruction=(
-                "Keep Bao-Dur's low breathy near-whisper and gentle, deliberate "
-                "articulation. Follow the performer's pace, pauses, emphasis, and "
-                "emotional intensity exactly. Do not flatten emphasis or add "
-                "fatigue, solemnity, or volume."
+                "Keep Bao-Dur's low, breathy, gentle timbre. Match the performer "
+                "without flattening emphasis or adding fatigue."
             ),
             use_controlled_cloning=True,
             controlled_cfg_value=1.5,
+            lora_training_name="bao-dur",
+            use_stable_character_identity=True,
         ),
         ProfileSpec(
             ("ubAJyJphmwzPmKNsS9W6",),
@@ -425,7 +426,47 @@ def write_profile(root: Path, spec: ProfileSpec) -> None:
         profile_root = root / voice_id
         profile_root.mkdir(parents=True, exist_ok=True)
         (profile_root / "styles").mkdir(parents=True, exist_ok=True)
-        sf.write(profile_root / "reference.wav", reference, SAMPLE_RATE, subtype="PCM_16")
+        adapter_installed = False
+        if spec.lora_training_name:
+            checkpoints_root = (
+                Path(os.environ["LOCALAPPDATA"])
+                / "VoxStudio"
+                / "voxcpm_training"
+                / spec.lora_training_name
+                / "checkpoints"
+            )
+            checkpoint_root = next(
+                (
+                    candidate
+                    for candidate in (
+                        checkpoints_root / "best",
+                        checkpoints_root / "latest",
+                    )
+                    if (candidate / "lora_weights.safetensors").exists()
+                    and (candidate / "lora_config.json").exists()
+                ),
+                checkpoints_root / "latest",
+            )
+            weights_path = checkpoint_root / "lora_weights.safetensors"
+            config_path = checkpoint_root / "lora_config.json"
+            if weights_path.exists() and config_path.exists():
+                adapter_root = profile_root / "lora"
+                adapter_root.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(weights_path, adapter_root / weights_path.name)
+                shutil.copy2(config_path, adapter_root / config_path.name)
+                adapter_installed = True
+        profile_reference = selected[0][1] if adapter_installed else reference
+        if adapter_installed:
+            profile_reference = profile_reference.copy()
+            reference_peak = float(np.max(np.abs(profile_reference)))
+            if reference_peak > 0.0:
+                profile_reference *= min(0.92 / reference_peak, 2.5)
+        sf.write(
+            profile_root / "reference.wav",
+            profile_reference,
+            SAMPLE_RATE,
+            subtype="PCM_16",
+        )
         for anchor, clip in zip(style_anchors, style_clips, strict=True):
             sf.write(
                 profile_root / anchor["audio"],
@@ -434,7 +475,7 @@ def write_profile(root: Path, spec: ProfileSpec) -> None:
                 subtype="PCM_16",
             )
         profile = {
-            "format_version": 4,
+            "format_version": 5,
             "voice_id": voice_id,
             "name": spec.name,
             "engine": "VoxCPM2",
@@ -448,6 +489,10 @@ def write_profile(root: Path, spec: ProfileSpec) -> None:
             "control_instruction": spec.control_instruction,
             "use_controlled_cloning": spec.use_controlled_cloning,
             "controlled_cfg_value": spec.controlled_cfg_value,
+            "lora_adapter": "lora" if adapter_installed else "",
+            "use_stable_character_identity": (
+                spec.use_stable_character_identity and adapter_installed
+            ),
         }
         (profile_root / "profile.json").write_text(
             json.dumps(profile, indent=2),
