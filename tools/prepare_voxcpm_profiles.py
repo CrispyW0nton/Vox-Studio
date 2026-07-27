@@ -29,6 +29,8 @@ class ProfileSpec:
     primary_prompt: Path | None = None
     primary_prompt_text: str = ""
     exclude_name_patterns: tuple[str, ...] = ()
+    cfg_value: float = 2.0
+    inference_timesteps: int = 10
 
 
 def default_specs() -> tuple[ProfileSpec, ...]:
@@ -65,7 +67,13 @@ def default_specs() -> tuple[ProfileSpec, ...]:
         ProfileSpec(
             ("VqtR5ry1ddcv59m6Wvqg",),
             "Atton",
-            (voices / "AttonTrainingData" / "atton_voice_cleaned.mp3",),
+            (voices / "RvcDatasets" / "AttonConversational",),
+            voices / "RvcDatasets" / "AttonConversational" / "101101atton001.wav",
+            (
+                "Nice outfit. What, you miners change regulation uniforms "
+                "while I've been in here?"
+            ),
+            cfg_value=1.5,
         ),
         ProfileSpec(
             ("0KRk8sPqojm2YNRCGKqu",),
@@ -110,9 +118,10 @@ def load_mono(path: Path) -> np.ndarray:
     return mono.astype(np.float32, copy=False)
 
 
-def candidate_windows(files: list[Path]) -> list[tuple[float, np.ndarray, Path]]:
+def candidate_windows(files: list[Path]) -> list[tuple[float, int, int, Path]]:
     window_frames = int(WINDOW_SECONDS * SAMPLE_RATE)
-    candidates: list[tuple[float, np.ndarray, Path]] = []
+    complete_line_frames = int(12.0 * SAMPLE_RATE)
+    candidates: list[tuple[float, int, int, Path]] = []
     for path in files:
         try:
             audio = load_mono(path)
@@ -122,14 +131,16 @@ def candidate_windows(files: list[Path]) -> list[tuple[float, np.ndarray, Path]]
         if len(audio) < SAMPLE_RATE:
             continue
 
-        if len(audio) <= window_frames:
+        if len(audio) <= complete_line_frames:
             starts = [0]
+            candidate_frames = len(audio)
         else:
             count = min(18, max(3, int(len(audio) / window_frames)))
             starts = np.linspace(0, len(audio) - window_frames, count, dtype=int).tolist()
+            candidate_frames = window_frames
 
         for start in starts:
-            clip = audio[start : start + window_frames]
+            clip = audio[start : start + candidate_frames]
             if len(clip) < SAMPLE_RATE:
                 continue
             rms = float(np.sqrt(np.mean(np.square(clip)) + 1e-12))
@@ -139,7 +150,7 @@ def candidate_windows(files: list[Path]) -> list[tuple[float, np.ndarray, Path]]
                 continue
             target_rms = 10.0 ** (-22.0 / 20.0)
             score = abs(math.log(max(rms, 1e-6) / target_rms)) + clipping * 25.0
-            candidates.append((score, clip.copy(), path))
+            candidates.append((score, start, len(clip), path))
     return candidates
 
 
@@ -152,27 +163,33 @@ def build_reference(
         raise RuntimeError("No usable speech was found in the configured source files.")
 
     candidates.sort(key=lambda item: item[0])
-    selected: list[tuple[float, np.ndarray, Path]] = []
+    selected_candidates: list[tuple[float, int, int, Path]] = []
     used_paths: set[Path] = set()
     target_count = int(REFERENCE_SECONDS / WINDOW_SECONDS)
+    selected: list[tuple[float, np.ndarray, Path]] = []
     if primary_prompt is not None and primary_prompt.exists():
         primary_audio = load_mono(primary_prompt)
         primary_audio, _ = librosa.effects.trim(primary_audio, top_db=38)
         selected.append((-1.0, primary_audio[: int(12.0 * SAMPLE_RATE)], primary_prompt))
         used_paths.add(primary_prompt)
     for candidate in candidates:
-        if candidate[2] in used_paths:
+        if candidate[3] in used_paths:
             continue
-        selected.append(candidate)
-        used_paths.add(candidate[2])
-        if len(selected) == target_count:
+        selected_candidates.append(candidate)
+        used_paths.add(candidate[3])
+        if len(selected) + len(selected_candidates) == target_count:
             break
     for candidate in candidates:
-        if len(selected) == target_count:
+        if len(selected) + len(selected_candidates) == target_count:
             break
-        if any(candidate is existing for existing in selected):
+        if candidate in selected_candidates:
             continue
-        selected.append(candidate)
+        selected_candidates.append(candidate)
+
+    for score, start, frame_count, path in selected_candidates:
+        audio = load_mono(path)
+        clip, _ = librosa.effects.trim(audio[start : start + frame_count], top_db=38)
+        selected.append((score, clip, path))
 
     gap = np.zeros(int(0.12 * SAMPLE_RATE), dtype=np.float32)
     parts: list[np.ndarray] = []
@@ -314,8 +331,8 @@ def write_profile(root: Path, spec: ProfileSpec) -> None:
             "source_duration_seconds": round(total_source_seconds, 2),
             "selected_sources": [str(item[2]) for item in selected],
             "style_anchors": style_anchors,
-            "cfg_value": 2.0,
-            "inference_timesteps": 10,
+            "cfg_value": spec.cfg_value,
+            "inference_timesteps": spec.inference_timesteps,
         }
         (profile_root / "profile.json").write_text(
             json.dumps(profile, indent=2),
