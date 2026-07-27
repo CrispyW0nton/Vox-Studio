@@ -40,9 +40,8 @@ constexpr int kTakeSampleRate = 48000;
         float left = 0.0F;
         float right = 0.0F;
         for (int channel = 0; channel < input.channels; ++channel) {
-            const auto sampleIndex =
-                (frame * static_cast<std::size_t>(input.channels)) +
-                static_cast<std::size_t>(channel);
+            const auto sampleIndex = (frame * static_cast<std::size_t>(input.channels)) +
+                                     static_cast<std::size_t>(channel);
             if ((channel % 2) == 0) {
                 left += input.samples[sampleIndex];
             } else {
@@ -72,8 +71,8 @@ preparedTakeAudio(const audio::PcmAudioBuffer& audio) {
     if (audio.sampleRate <= 0) {
         return 0;
     }
-    const auto seconds = static_cast<double>(audio.frameCount()) /
-                         static_cast<double>(audio.sampleRate);
+    const auto seconds =
+        static_cast<double>(audio.frameCount()) / static_cast<double>(audio.sampleRate);
     return static_cast<int>(std::lround(seconds * 1000.0));
 }
 
@@ -127,20 +126,17 @@ namespace {
 
 Expected<SavedTake> saveVoiceTake(const db::TakeRepository& repository,
                                   const std::filesystem::path& projectRoot,
-                                  const std::string& lineId,
-                                  const std::string& voiceId,
-                                  const std::string& rvcModelId,
-                                  const audio::PcmAudioBuffer& audio,
-                                  const VoiceSettings& settings,
-                                  const std::string& source,
-                                  const std::string& delivery = {}) {
+                                  const std::string& lineId, const std::string& voiceId,
+                                  const std::string& rvcModelId, const audio::PcmAudioBuffer& audio,
+                                  const VoiceSettings& settings, const std::string& source,
+                                  const std::string& delivery = {},
+                                  const std::string& performanceMode = {}) {
     if (projectRoot.empty() || lineId.empty() || source.empty()) {
         return makeError(ErrorCode::InvalidArgument,
                          "Project root, line id, and take source are required.");
     }
     if (voiceId.empty() && rvcModelId.empty()) {
-        return makeError(ErrorCode::InvalidArgument,
-                         "Voice id or RVC model id is required.");
+        return makeError(ErrorCode::InvalidArgument, "Voice id or RVC model id is required.");
     }
 
     auto takeId = repository.createTakeId();
@@ -155,8 +151,7 @@ Expected<SavedTake> saveVoiceTake(const db::TakeRepository& repository,
 
     const auto safeLineId = safePathSegment(lineId);
     const auto safeTakeId = safePathSegment(takeId.value());
-    const auto relativePath =
-        std::filesystem::path{"takes"} / safeLineId / (safeTakeId + ".opus");
+    const auto relativePath = std::filesystem::path{"takes"} / safeLineId / (safeTakeId + ".opus");
     const auto absolutePath = projectRoot / relativePath;
 
     auto written = audio::writeOpusFile(absolutePath, prepared.value());
@@ -178,6 +173,9 @@ Expected<SavedTake> saveVoiceTake(const db::TakeRepository& repository,
     }
     if (!delivery.empty()) {
         metadata["delivery"] = delivery;
+    }
+    if (!performanceMode.empty()) {
+        metadata["performance_mode"] = performanceMode;
     }
 
     db::NewTakeRecord record;
@@ -203,69 +201,44 @@ Expected<SavedTake> saveVoiceTake(const db::TakeRepository& repository,
 
 } // namespace
 
-Expected<SavedTake>
-TakeManager::saveTtsTake(const std::filesystem::path& projectRoot,
-                         const std::string& lineId,
-                         const std::string& voiceId,
-                         const audio::PcmAudioBuffer& audio,
-                         const VoiceSettings& settings) const {
+Expected<SavedTake> TakeManager::saveTtsTake(const std::filesystem::path& projectRoot,
+                                             const std::string& lineId, const std::string& voiceId,
+                                             const audio::PcmAudioBuffer& audio,
+                                             const VoiceSettings& settings) const {
     return saveVoiceTake(m_repository, projectRoot, lineId, voiceId, {}, audio, settings, "tts");
 }
 
-Expected<SavedTake>
-TakeManager::saveStsTake(const std::filesystem::path& projectRoot,
-                         const std::string& lineId,
-                         const std::string& voiceId,
-                         const audio::PcmAudioBuffer& audio,
-                         const VoiceSettings& settings) const {
+Expected<SavedTake> TakeManager::saveStsTake(const std::filesystem::path& projectRoot,
+                                             const std::string& lineId, const std::string& voiceId,
+                                             const audio::PcmAudioBuffer& audio,
+                                             const VoiceSettings& settings) const {
     return saveVoiceTake(m_repository, projectRoot, lineId, voiceId, {}, audio, settings, "sts");
 }
 
-Expected<SavedTake>
-TakeManager::saveVoxCpmTake(const std::filesystem::path& projectRoot,
-                            const std::string& lineId,
-                            const std::string& voiceId,
-                            const audio::PcmAudioBuffer& audio) const {
-    return saveVoiceTake(m_repository,
-                         projectRoot,
-                         lineId,
-                         voiceId,
-                         {},
-                         audio,
-                         defaultVoiceSettings(),
-                         "voxcpm2");
+Expected<SavedTake> TakeManager::saveVoxCpmTake(const std::filesystem::path& projectRoot,
+                                                const std::string& lineId,
+                                                const std::string& voiceId,
+                                                const audio::PcmAudioBuffer& audio) const {
+    return saveVoiceTake(m_repository, projectRoot, lineId, voiceId, {}, audio,
+                         defaultVoiceSettings(), "voxcpm2");
 }
 
-Expected<SavedTake>
-TakeManager::saveVoxCpmTextTake(const std::filesystem::path& projectRoot,
-                                const std::string& lineId,
-                                const std::string& voiceId,
-                                const audio::PcmAudioBuffer& audio,
-                                const std::string& delivery) const {
-    return saveVoiceTake(m_repository,
-                         projectRoot,
-                         lineId,
-                         voiceId,
-                         {},
-                         audio,
-                         defaultVoiceSettings(),
-                         "voxcpm2_tts",
-                         delivery);
+Expected<SavedTake> TakeManager::saveVoxCpmTextTake(const std::filesystem::path& projectRoot,
+                                                    const std::string& lineId,
+                                                    const std::string& voiceId,
+                                                    const audio::PcmAudioBuffer& audio,
+                                                    const std::string& delivery,
+                                                    const std::string& performanceMode) const {
+    return saveVoiceTake(m_repository, projectRoot, lineId, voiceId, {}, audio,
+                         defaultVoiceSettings(), "voxcpm2_tts", delivery, performanceMode);
 }
 
-Expected<SavedTake>
-TakeManager::saveRvcLocalTake(const std::filesystem::path& projectRoot,
-                              const std::string& lineId,
-                              const std::string& rvcModelId,
-                              const audio::PcmAudioBuffer& audio) const {
-    return saveVoiceTake(m_repository,
-                         projectRoot,
-                         lineId,
-                         {},
-                         rvcModelId,
-                         audio,
-                         defaultVoiceSettings(),
-                         "rvc_local");
+Expected<SavedTake> TakeManager::saveRvcLocalTake(const std::filesystem::path& projectRoot,
+                                                  const std::string& lineId,
+                                                  const std::string& rvcModelId,
+                                                  const audio::PcmAudioBuffer& audio) const {
+    return saveVoiceTake(m_repository, projectRoot, lineId, {}, rvcModelId, audio,
+                         defaultVoiceSettings(), "rvc_local");
 }
 
 } // namespace voxstudio::core

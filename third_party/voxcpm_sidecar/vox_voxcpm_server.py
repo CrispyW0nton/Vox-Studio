@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import re
@@ -11,13 +12,14 @@ import urllib.parse
 import wave
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import librosa
 import numpy as np
 import soundfile as sf
 import torch
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, Response
 from faster_whisper import WhisperModel
 from scipy.signal import medfilt
@@ -41,9 +43,13 @@ from vox_profiles import (
     synthesis_inputs,
 )
 from vox_text import (
+    STORYTELLING_MODE,
     delivery_instruction,
     normalized_delivery_tag,
+    normalized_performance_mode,
+    plan_story_performance,
     split_text_for_synthesis,
+    story_beat_instruction,
 )
 
 
@@ -58,10 +64,11 @@ PROFILE_ROOT = Path(
 
 os.environ.setdefault("HF_HOME", str(ENGINE_ROOT / "cache"))
 
-app = FastAPI(title="Vox Studio VoxCPM2", version="1.1")
+app = FastAPI(title="Vox Studio VoxCPM2", version="1.2")
 model_lock = threading.Lock()
 transcriber_lock = threading.Lock()
 delivery_lock = threading.Lock()
+text_render_lock = asyncio.Lock()
 model_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="VoxCPM2")
 tts_model: VoxCPM | None = None
 active_lora: dict[str, object] = {"loaded_signature": None, "enabled": False}
@@ -78,6 +85,16 @@ transcription_hotwords = build_transcription_hotwords(
         "Ebon Hawk",
     ),
 )
+
+
+@dataclass(frozen=True)
+class TextSynthesisSection:
+    text: str
+    instruction: str
+    pause_after: float
+    seed: int
+
+
 torch.set_float32_matmul_precision("high")
 
 
@@ -610,10 +627,12 @@ def render_performance(
 
 
 @app.post("/render_text")
-def render_text(
+async def render_text(
+    request: Request,
     voice_id: str = Form(...),
     text: str = Form(...),
     delivery: str = Form("natural"),
+    mode: str = Form("standard"),
 ) -> Response:
     spoken_text = re.sub(r"\s+", " ", text).strip()
     if not spoken_text:
@@ -631,51 +650,98 @@ def render_text(
         raise HTTPException(status_code=500, detail=str(exception)) from exception
 
     delivery_tag = normalized_delivery_tag(delivery)
-    instruction = text_control_instruction(profile, delivery_tag)
-    sections = split_text_for_synthesis(spoken_text)
+    performance_mode = normalized_performance_mode(mode)
+    story_plan = (
+        plan_story_performance(spoken_text, delivery_tag)
+        if performance_mode == STORYTELLING_MODE
+        else None
+    )
+    if story_plan is not None:
+        synthesis_sections = tuple(
+            TextSynthesisSection(
+                text=beat.text,
+                instruction=" ".join(
+                    value
+                    for value in (
+                        control_identity_instruction(profile),
+                        story_beat_instruction(beat, delivery_tag),
+                    )
+                    if value
+                ),
+                pause_after=beat.pause_after,
+                seed=42,
+            )
+            for beat in story_plan.beats
+        )
+    else:
+        sections = split_text_for_synthesis(spoken_text)
+        instruction = text_control_instruction(profile, delivery_tag)
+        synthesis_sections = tuple(
+            TextSynthesisSection(
+                text=section,
+                instruction=instruction,
+                pause_after=text_pause_seconds(section),
+                seed=42 + index,
+            )
+            for index, section in enumerate(sections)
+        )
+
+    if text_render_lock.locked():
+        raise HTTPException(
+            status_code=409,
+            detail="Another text performance is still rendering.",
+        )
+
     started = time.perf_counter()
-    rendered_sections: list[np.ndarray] = []
+    output_pcm = bytearray()
     matched_pronunciations: list[str] = []
     output_sample_rate = 0
 
-    for index, section in enumerate(sections):
-        pronunciation = apply_pronunciations(section, pronunciations)
-        for term in pronunciation.matched_terms:
-            if term not in matched_pronunciations:
-                matched_pronunciations.append(term)
-        rendered, section_sample_rate = model_executor.submit(
-            synthesize,
-            pronunciation.text,
-            reference_path,
-            "",
-            reference_path,
-            profile,
-            instruction,
-            lora_path,
-            42 + index,
-        ).result()
-        if output_sample_rate and output_sample_rate != section_sample_rate:
-            raise HTTPException(
-                status_code=500,
-                detail="VoxCPM2 returned inconsistent section sample rates.",
-            )
-        output_sample_rate = section_sample_rate
-        rendered_sections.append(
-            finished_text_audio(rendered, output_sample_rate)
-        )
-        if index + 1 < len(sections):
-            rendered_sections.append(
-                np.zeros(
-                    int(output_sample_rate * text_pause_seconds(section)),
-                    dtype=np.float32,
+    async with text_render_lock:
+        for index, section in enumerate(synthesis_sections):
+            if await request.is_disconnected():
+                raise HTTPException(
+                    status_code=499,
+                    detail="Text performance cancelled because the client disconnected.",
+                )
+            pronunciation = apply_pronunciations(section.text, pronunciations)
+            for term in pronunciation.matched_terms:
+                if term not in matched_pronunciations:
+                    matched_pronunciations.append(term)
+            rendered, section_sample_rate = await asyncio.wrap_future(
+                model_executor.submit(
+                    synthesize,
+                    pronunciation.text,
+                    reference_path,
+                    "",
+                    reference_path,
+                    profile,
+                    section.instruction,
+                    lora_path,
+                    section.seed,
                 )
             )
+            if output_sample_rate and output_sample_rate != section_sample_rate:
+                raise HTTPException(
+                    status_code=500,
+                    detail="VoxCPM2 returned inconsistent section sample rates.",
+                )
+            output_sample_rate = section_sample_rate
+            finished = np.clip(
+                finished_text_audio(rendered, output_sample_rate),
+                -1.0,
+                1.0,
+            )
+            output_pcm.extend((finished * 32767.0).astype("<i2").tobytes())
+            if index + 1 < len(synthesis_sections):
+                output_pcm.extend(
+                    b"\x00\x00"
+                    * int(output_sample_rate * section.pause_after)
+                )
 
-    if not rendered_sections or output_sample_rate <= 0:
+    if not output_pcm or output_sample_rate <= 0:
         raise HTTPException(status_code=500, detail="VoxCPM2 returned no text audio.")
 
-    output = np.clip(np.concatenate(rendered_sections), -1.0, 1.0)
-    output_pcm = (output * 32767.0).astype("<i2").tobytes()
     latency_ms = int((time.perf_counter() - started) * 1000.0)
     headers = {
         "X-Vox-Sample-Rate": str(output_sample_rate),
@@ -687,10 +753,28 @@ def render_text(
             ", ".join(matched_pronunciations)
         ),
         "X-Vox-Adapter": "trained" if lora_path else "base",
-        "X-Vox-Section-Count": str(len(sections)),
+        "X-Vox-Section-Count": str(len(synthesis_sections)),
+        "X-Vox-Performance-Mode": performance_mode,
         "Cache-Control": "no-store",
     }
-    return Response(output_pcm, media_type="audio/L16", headers=headers)
+    return Response(bytes(output_pcm), media_type="audio/L16", headers=headers)
+
+
+@app.post("/analyze_story")
+def analyze_story(
+    text: str = Form(...),
+    delivery: str = Form("natural"),
+) -> JSONResponse:
+    spoken_text = re.sub(r"\s+", " ", text).strip()
+    if not spoken_text:
+        raise HTTPException(status_code=400, detail="Enter a story to analyze.")
+    if len(spoken_text) > 10000:
+        raise HTTPException(
+            status_code=400,
+            detail="Storytelling captures are limited to 10,000 characters.",
+        )
+    plan = plan_story_performance(spoken_text, normalized_delivery_tag(delivery))
+    return JSONResponse(asdict(plan))
 
 
 def parse_args() -> argparse.Namespace:

@@ -49,6 +49,18 @@
       "aliases": ["Rodean"]
     },
     {
+      "term": "Pazaak",
+      "spoken": "puh-ZAHK"
+    },
+    {
+      "term": "Sabacc",
+      "spoken": "suh-BACK"
+    },
+    {
+      "term": "Gamorreans",
+      "spoken": "Gam-or-REE-ans"
+    },
+    {
       "term": "Carth",
       "spoken": "Karth",
       "aliases": ["Karth"]

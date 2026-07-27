@@ -72,8 +72,8 @@ TEST_CASE("take manager stores Opus takes and restores active take", "[core][tak
 
     const voxstudio::db::VoiceRepository voiceRepository;
     const voxstudio::db::VoiceRecord voice{
-        "voice_alice", "Alice Clone", "ivc", "{}", "{}", "2026-01-01T00:00:00Z",
-        "2026-01-01T00:00:00Z"};
+        "voice_alice",          "Alice Clone",         "ivc", "{}", "{}",
+        "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"};
     auto voiceSaved = voiceRepository.upsertVoice(projectRoot, voice);
     REQUIRE(voiceSaved.hasValue());
 
@@ -133,7 +133,7 @@ TEST_CASE("take manager stores STS takes as active Opus takes", "[core][takes][s
 
     const voxstudio::db::VoiceRepository voiceRepository;
     const voxstudio::db::VoiceRecord voice{
-        "voice_bob", "Bob Clone", "ivc", "{}", "{}", "2026-01-01T00:00:00Z",
+        "voice_bob",           "Bob Clone", "ivc", "{}", "{}", "2026-01-01T00:00:00Z",
         "2026-01-01T00:00:00Z"};
     auto voiceSaved = voiceRepository.upsertVoice(projectRoot, voice);
     REQUIRE(voiceSaved.hasValue());
@@ -148,8 +148,8 @@ TEST_CASE("take manager stores STS takes as active Opus takes", "[core][takes][s
     const auto lineId = imported.value().lines.front().id;
 
     voxstudio::core::TakeManager manager;
-    auto savedTake = manager.saveStsTake(
-        projectRoot, lineId, "voice_bob", sinePcm(), voxstudio::core::defaultVoiceSettings());
+    auto savedTake = manager.saveStsTake(projectRoot, lineId, "voice_bob", sinePcm(),
+                                         voxstudio::core::defaultVoiceSettings());
     REQUIRE(savedTake.hasValue());
     CHECK(savedTake.value().take.starred);
     CHECK(savedTake.value().take.source == "sts");
@@ -172,8 +172,7 @@ TEST_CASE("take manager labels VoxCPM2 performance takes", "[core][takes][voxcpm
 
     const voxstudio::db::VoiceRepository voiceRepository;
     const voxstudio::db::VoiceRecord voice{
-        "voice_carth", "Carth", "ivc", "{}", "{}", "2026-01-01T00:00:00Z",
-        "2026-01-01T00:00:00Z"};
+        "voice_carth", "Carth", "ivc", "{}", "{}", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"};
     REQUIRE(voiceRepository.upsertVoice(projectRoot, voice).hasValue());
 
     auto parsed = voxstudio::io::scripts::importScriptFile(fixturePath("scripts/sample.txt"));
@@ -184,13 +183,12 @@ TEST_CASE("take manager labels VoxCPM2 performance takes", "[core][takes][voxcpm
     REQUIRE(imported.hasValue());
 
     voxstudio::core::TakeManager manager;
-    auto savedTake = manager.saveVoxCpmTake(
-        projectRoot, imported.value().lines.front().id, "voice_carth", sinePcm());
+    auto savedTake = manager.saveVoxCpmTake(projectRoot, imported.value().lines.front().id,
+                                            "voice_carth", sinePcm());
 
     REQUIRE(savedTake.hasValue());
     CHECK(savedTake.value().take.source == "voxcpm2");
-    CHECK(savedTake.value().take.metadataJson.find("\"engine\":\"voxcpm2\"") !=
-          std::string::npos);
+    CHECK(savedTake.value().take.metadataJson.find("\"engine\":\"voxcpm2\"") != std::string::npos);
     CHECK(std::filesystem::exists(savedTake.value().absolutePath));
 }
 
@@ -204,22 +202,23 @@ TEST_CASE("take manager stores VoxCPM2 text delivery tags", "[core][takes][voxcp
 
     const voxstudio::db::VoiceRepository voiceRepository;
     const voxstudio::db::VoiceRecord voice{
-        "voice_carth", "Carth", "ivc", "{}", "{}", "2026-01-01T00:00:00Z",
-        "2026-01-01T00:00:00Z"};
+        "voice_carth", "Carth", "ivc", "{}", "{}", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"};
     REQUIRE(voiceRepository.upsertVoice(projectRoot, voice).hasValue());
 
     const voxstudio::db::ScriptRepository scriptRepository;
-    auto line = scriptRepository.createPerformanceLine(
-        projectRoot, "Carth", "voice_carth", "The Rodian remembered Telos.");
+    auto line = scriptRepository.createPerformanceLine(projectRoot, "Carth", "voice_carth",
+                                                       "The Rodian remembered Telos.");
     REQUIRE(line.hasValue());
 
     voxstudio::core::TakeManager manager;
-    auto savedTake = manager.saveVoxCpmTextTake(
-        projectRoot, line.value().id, "voice_carth", sinePcm(), "reflective");
+    auto savedTake = manager.saveVoxCpmTextTake(projectRoot, line.value().id, "voice_carth",
+                                                sinePcm(), "reflective", "storytelling");
 
     REQUIRE(savedTake.hasValue());
     CHECK(savedTake.value().take.source == "voxcpm2_tts");
     CHECK(savedTake.value().take.metadataJson.find("\"delivery\":\"reflective\"") !=
+          std::string::npos);
+    CHECK(savedTake.value().take.metadataJson.find("\"performance_mode\":\"storytelling\"") !=
           std::string::npos);
     CHECK(std::filesystem::exists(savedTake.value().absolutePath));
 }
@@ -263,8 +262,8 @@ TEST_CASE("voice settings JSON round trips with defaults", "[core][takes]") {
     settings.style = 0.4;
     settings.useSpeakerBoost = false;
 
-    auto parsed = voxstudio::core::voiceSettingsFromJson(
-        voxstudio::core::voiceSettingsToJson(settings));
+    auto parsed =
+        voxstudio::core::voiceSettingsFromJson(voxstudio::core::voiceSettingsToJson(settings));
     REQUIRE(parsed.hasValue());
     CHECK(parsed.value().stability == 0.2);
     CHECK(parsed.value().similarityBoost == 0.9);

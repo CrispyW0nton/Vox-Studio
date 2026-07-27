@@ -19,6 +19,7 @@ struct VoxCpmHttpResponse final {
     std::string delivery;
     std::string pronunciations;
     std::string adapter;
+    std::string performanceMode;
     int sectionCount{1};
 };
 
@@ -46,6 +47,7 @@ struct VoxCpmTextRequest final {
     std::string voiceId;
     std::string text;
     std::string delivery{"natural"};
+    std::string mode{"standard"};
 };
 
 struct VoxCpmTextResult final {
@@ -57,7 +59,29 @@ struct VoxCpmTextResult final {
     std::string delivery;
     std::string pronunciations;
     std::string adapter;
+    std::string performanceMode;
     int sectionCount{1};
+};
+
+struct VoxCpmStoryRequest final {
+    std::string text;
+    std::string delivery{"natural"};
+};
+
+struct VoxCpmStoryBeat final {
+    int index{0};
+    std::string role;
+    std::string text;
+    std::string delivery;
+    std::string direction;
+    std::vector<std::string> emphasis;
+    double pauseAfter{0.0};
+};
+
+struct VoxCpmStoryResult final {
+    std::string mode;
+    std::string summary;
+    std::vector<VoxCpmStoryBeat> beats;
 };
 
 struct VoxCpmHealth final {
@@ -81,6 +105,8 @@ public:
     postPerformance(const std::string& path, const VoxCpmRenderRequest& request) const = 0;
     [[nodiscard]] virtual core::Expected<VoxCpmHttpResponse>
     postText(const std::string& path, const VoxCpmTextRequest& request) const = 0;
+    [[nodiscard]] virtual core::Expected<VoxCpmHttpResponse>
+    postStoryPlan(const std::string& path, const VoxCpmStoryRequest& request) const = 0;
 };
 
 class CprVoxCpmHttpTransport final : public IVoxCpmHttpTransport {
@@ -94,6 +120,8 @@ public:
     postPerformance(const std::string& path, const VoxCpmRenderRequest& request) const override;
     [[nodiscard]] core::Expected<VoxCpmHttpResponse>
     postText(const std::string& path, const VoxCpmTextRequest& request) const override;
+    [[nodiscard]] core::Expected<VoxCpmHttpResponse>
+    postStoryPlan(const std::string& path, const VoxCpmStoryRequest& request) const override;
 
 private:
     std::string m_baseUrl;
@@ -109,6 +137,8 @@ public:
     renderPerformance(const VoxCpmRenderRequest& request) const;
     [[nodiscard]] core::Expected<VoxCpmTextResult>
     renderText(const VoxCpmTextRequest& request) const;
+    [[nodiscard]] core::Expected<VoxCpmStoryResult>
+    analyzeStory(const VoxCpmStoryRequest& request) const;
 
 private:
     std::string m_endpoint;
@@ -118,5 +148,6 @@ private:
 [[nodiscard]] std::string voxCpmHealthPath();
 [[nodiscard]] std::string voxCpmRenderPath();
 [[nodiscard]] std::string voxCpmTextPath();
+[[nodiscard]] std::string voxCpmStoryPath();
 
 } // namespace voxstudio::voxcpm

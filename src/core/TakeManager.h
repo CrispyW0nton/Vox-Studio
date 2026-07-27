@@ -27,38 +27,32 @@ struct SavedTake final {
 
 class TakeManager final {
 public:
-    [[nodiscard]] Expected<SavedTake>
-    saveTtsTake(const std::filesystem::path& projectRoot,
-                const std::string& lineId,
-                const std::string& voiceId,
-                const audio::PcmAudioBuffer& audio,
-                const VoiceSettings& settings) const;
+    [[nodiscard]] Expected<SavedTake> saveTtsTake(const std::filesystem::path& projectRoot,
+                                                  const std::string& lineId,
+                                                  const std::string& voiceId,
+                                                  const audio::PcmAudioBuffer& audio,
+                                                  const VoiceSettings& settings) const;
+
+    [[nodiscard]] Expected<SavedTake> saveStsTake(const std::filesystem::path& projectRoot,
+                                                  const std::string& lineId,
+                                                  const std::string& voiceId,
+                                                  const audio::PcmAudioBuffer& audio,
+                                                  const VoiceSettings& settings) const;
+
+    [[nodiscard]] Expected<SavedTake> saveVoxCpmTake(const std::filesystem::path& projectRoot,
+                                                     const std::string& lineId,
+                                                     const std::string& voiceId,
+                                                     const audio::PcmAudioBuffer& audio) const;
 
     [[nodiscard]] Expected<SavedTake>
-    saveStsTake(const std::filesystem::path& projectRoot,
-                const std::string& lineId,
-                const std::string& voiceId,
-                const audio::PcmAudioBuffer& audio,
-                const VoiceSettings& settings) const;
+    saveVoxCpmTextTake(const std::filesystem::path& projectRoot, const std::string& lineId,
+                       const std::string& voiceId, const audio::PcmAudioBuffer& audio,
+                       const std::string& delivery, const std::string& performanceMode = {}) const;
 
-    [[nodiscard]] Expected<SavedTake>
-    saveVoxCpmTake(const std::filesystem::path& projectRoot,
-                   const std::string& lineId,
-                   const std::string& voiceId,
-                   const audio::PcmAudioBuffer& audio) const;
-
-    [[nodiscard]] Expected<SavedTake>
-    saveVoxCpmTextTake(const std::filesystem::path& projectRoot,
-                       const std::string& lineId,
-                       const std::string& voiceId,
-                       const audio::PcmAudioBuffer& audio,
-                       const std::string& delivery) const;
-
-    [[nodiscard]] Expected<SavedTake>
-    saveRvcLocalTake(const std::filesystem::path& projectRoot,
-                     const std::string& lineId,
-                     const std::string& rvcModelId,
-                     const audio::PcmAudioBuffer& audio) const;
+    [[nodiscard]] Expected<SavedTake> saveRvcLocalTake(const std::filesystem::path& projectRoot,
+                                                       const std::string& lineId,
+                                                       const std::string& rvcModelId,
+                                                       const audio::PcmAudioBuffer& audio) const;
 
 private:
     db::TakeRepository m_repository;

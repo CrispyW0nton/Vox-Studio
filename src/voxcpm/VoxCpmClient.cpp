@@ -3,6 +3,7 @@
 #include <cpr/cpr.h>
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <exception>
 #include <string_view>
@@ -12,6 +13,7 @@ namespace voxstudio::voxcpm {
 namespace {
 
 constexpr std::chrono::seconds kHealthTimeout{5};
+constexpr std::chrono::seconds kStoryTimeout{15};
 constexpr std::chrono::seconds kRenderTimeout{180};
 constexpr std::chrono::seconds kTextRenderTimeout{600};
 
@@ -30,6 +32,13 @@ constexpr std::chrono::seconds kTextRenderTimeout{600};
 
 [[nodiscard]] core::Error clientError(const std::string& message) {
     return core::makeError(core::ErrorCode::InvalidArgument, message);
+}
+
+[[nodiscard]] std::size_t utf8CodePointCount(const std::string& value) {
+    return static_cast<std::size_t>(
+        std::count_if(value.begin(), value.end(), [](const unsigned char byte) {
+            return (byte & 0xC0U) != 0x80U;
+        }));
 }
 
 [[nodiscard]] std::string headerValue(const cpr::Header& headers, const std::string& name) {
@@ -107,21 +116,18 @@ CprVoxCpmHttpTransport::postPerformance(const std::string& path,
 }
 
 core::Expected<VoxCpmHttpResponse>
-CprVoxCpmHttpTransport::postText(const std::string& path,
-                                 const VoxCpmTextRequest& request) const {
+CprVoxCpmHttpTransport::postText(const std::string& path, const VoxCpmTextRequest& request) const {
     try {
         cpr::Multipart multipart{{"voice_id", request.voiceId},
                                  {"text", request.text},
-                                 {"delivery", request.delivery}};
+                                 {"delivery", request.delivery},
+                                 {"mode", request.mode}};
 
         const auto response =
-            cpr::Post(cpr::Url{joinedUrl(m_baseUrl, path)},
-                      cpr::Header{{"Accept", "audio/L16"}},
-                      std::move(multipart),
-                      cpr::Timeout{kTextRenderTimeout});
+            cpr::Post(cpr::Url{joinedUrl(m_baseUrl, path)}, cpr::Header{{"Accept", "audio/L16"}},
+                      std::move(multipart), cpr::Timeout{kTextRenderTimeout});
         if (response.error.code != cpr::ErrorCode::OK) {
-            return core::makeError(core::ErrorCode::FileSystemFailure,
-                                   response.error.message);
+            return core::makeError(core::ErrorCode::FileSystemFailure, response.error.message);
         }
 
         VoxCpmHttpResponse result;
@@ -133,8 +139,26 @@ CprVoxCpmHttpTransport::postText(const std::string& path,
         result.delivery = headerValue(response.header, "x-vox-delivery");
         result.pronunciations = headerValue(response.header, "x-vox-pronunciations");
         result.adapter = headerValue(response.header, "x-vox-adapter");
+        result.performanceMode = headerValue(response.header, "x-vox-performance-mode");
         result.sectionCount = integerHeader(response.header, "x-vox-section-count", 1);
         return result;
+    } catch (const std::exception& exception) {
+        return core::makeError(core::ErrorCode::FileSystemFailure, exception.what());
+    }
+}
+
+core::Expected<VoxCpmHttpResponse>
+CprVoxCpmHttpTransport::postStoryPlan(const std::string& path,
+                                      const VoxCpmStoryRequest& request) const {
+    try {
+        cpr::Multipart multipart{{"text", request.text}, {"delivery", request.delivery}};
+        const auto response = cpr::Post(cpr::Url{joinedUrl(m_baseUrl, path)},
+                                        cpr::Header{{"Accept", "application/json"}},
+                                        std::move(multipart), cpr::Timeout{kStoryTimeout});
+        if (response.error.code != cpr::ErrorCode::OK) {
+            return core::makeError(core::ErrorCode::FileSystemFailure, response.error.message);
+        }
+        return VoxCpmHttpResponse{static_cast<int>(response.status_code), response.text};
     } catch (const std::exception& exception) {
         return core::makeError(core::ErrorCode::FileSystemFailure, exception.what());
     }
@@ -219,15 +243,14 @@ VoxCpmClient::renderPerformance(const VoxCpmRenderRequest& request) const {
     return result;
 }
 
-core::Expected<VoxCpmTextResult>
-VoxCpmClient::renderText(const VoxCpmTextRequest& request) const {
+core::Expected<VoxCpmTextResult> VoxCpmClient::renderText(const VoxCpmTextRequest& request) const {
     if (request.voiceId.empty()) {
         return clientError("Select a VoxCPM2 character profile first.");
     }
     if (request.text.empty()) {
         return clientError("Enter text to synthesize.");
     }
-    if (request.text.size() > 10000U) {
+    if (utf8CodePointCount(request.text) > 10000U) {
         return clientError("Text-to-speech captures are limited to 10,000 characters.");
     }
     if (m_transport == nullptr) {
@@ -246,20 +269,73 @@ VoxCpmClient::renderText(const VoxCpmTextRequest& request) const {
         return core::makeError(core::ErrorCode::FileSystemFailure,
                                "VoxCPM2 returned no text-to-speech audio.");
     }
+    if (response.value().performanceMode.empty()) {
+        return clientError(
+            "The installed VoxCPM2 service is outdated. Refresh the local voice engine and try "
+            "again.");
+    }
 
     const auto& body = response.value().body;
     VoxCpmTextResult result;
-    result.pcm16Audio.assign(
-        reinterpret_cast<const std::uint8_t*>(body.data()),
-        reinterpret_cast<const std::uint8_t*>(body.data() + body.size()));
+    result.pcm16Audio.assign(reinterpret_cast<const std::uint8_t*>(body.data()),
+                             reinterpret_cast<const std::uint8_t*>(body.data() + body.size()));
     result.characterName = response.value().characterName;
     result.sampleRate = response.value().sampleRate;
     result.latencyMs = response.value().latencyMs;
     result.delivery = response.value().delivery;
     result.pronunciations = response.value().pronunciations;
     result.adapter = response.value().adapter;
+    result.performanceMode = response.value().performanceMode;
     result.sectionCount = response.value().sectionCount;
     return result;
+}
+
+core::Expected<VoxCpmStoryResult>
+VoxCpmClient::analyzeStory(const VoxCpmStoryRequest& request) const {
+    if (request.text.empty()) {
+        return clientError("Enter a story to analyze.");
+    }
+    if (utf8CodePointCount(request.text) > 10000U) {
+        return clientError("Storytelling captures are limited to 10,000 characters.");
+    }
+    if (m_transport == nullptr) {
+        return core::makeError(core::ErrorCode::FileSystemFailure,
+                               "VoxCPM2 HTTP transport is not configured.");
+    }
+
+    auto response = m_transport->postStoryPlan(voxCpmStoryPath(), request);
+    if (!response) {
+        return response.error();
+    }
+    if (response.value().statusCode < 200 || response.value().statusCode >= 300) {
+        return core::makeError(core::ErrorCode::FileSystemFailure, response.value().body);
+    }
+
+    try {
+        const auto json = nlohmann::json::parse(
+            response.value().body.empty() ? std::string{"{}"} : response.value().body);
+        VoxCpmStoryResult result;
+        result.mode = json.value("mode", std::string{"storytelling"});
+        result.summary = json.value("summary", std::string{});
+        for (const auto& beat : json.value("beats", nlohmann::json::array())) {
+            VoxCpmStoryBeat value;
+            value.index = beat.value("index", 0);
+            value.role = beat.value("role", std::string{});
+            value.text = beat.value("text", std::string{});
+            value.delivery = beat.value("delivery", std::string{"natural"});
+            value.direction = beat.value("direction", std::string{});
+            value.emphasis = beat.value("emphasis", std::vector<std::string>{});
+            value.pauseAfter = beat.value("pause_after", 0.0);
+            result.beats.push_back(std::move(value));
+        }
+        if (result.beats.empty()) {
+            return core::makeError(core::ErrorCode::FileSystemFailure,
+                                   "VoxCPM2 returned an empty story direction.");
+        }
+        return result;
+    } catch (const std::exception& exception) {
+        return core::makeError(core::ErrorCode::FileSystemFailure, exception.what());
+    }
 }
 
 std::string voxCpmHealthPath() {
@@ -272,6 +348,10 @@ std::string voxCpmRenderPath() {
 
 std::string voxCpmTextPath() {
     return "/render_text";
+}
+
+std::string voxCpmStoryPath() {
+    return "/analyze_story";
 }
 
 } // namespace voxstudio::voxcpm

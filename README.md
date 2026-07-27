@@ -148,6 +148,14 @@ Warm, Wry, Guarded, Wounded, Resolute, Urgent, Questioning, or Sarcastic.
 Generated speech plays through the selected output and is saved under
 **Generated Takes** for replay, starring, Explorer access, or deletion.
 
+Choose **Storytelling** for monologues and narrative scenes. Vox Studio analyzes
+the pasted text as changing thought beats, preserves the exact wording, and
+directs the hook, setup, escalation, turns, climax, and ending independently.
+**Preview Flow** shows the planned intent, emotional color, and operative words
+before synthesis. The renderer keeps one stable character identity across the
+story while varying pacing, emphasis, energy, and pauses only when the thought
+or dramatic situation changes.
+
 VoxCPM2 Performance mode is phrase-live rather than zero-latency waveform
 conversion: the result begins after a natural pause and local inference delay.
 The model remains loaded between phrases. Use **Local** RVC when immediate
@@ -198,8 +206,8 @@ are never included in the repository.
 
 `third_party\voxcpm_sidecar\pronunciations.json` contains local synthesis-only
 respellings for character and place names such as Carth, Atton, Bao-Dur, Kreia,
-Telos, Rodian, and Nar Shaddaa. The saved script and take transcript keep their
-original spelling.
+Telos, Rodian, Nar Shaddaa, Pazaak, Sabacc, and Gamorreans. The saved script and
+take transcript keep their original spelling.
 
 The source tree contains the service and profile tooling, not model weights or
 licensed voice audio. Those remain local user data.

@@ -330,6 +330,21 @@ class PronunciationTests(unittest.TestCase):
         self.assertEqual(result.matched_terms, ("Telos", "Rodian"))
         self.assertEqual(original, "The Rodian returned to Telos.")
 
+    def test_applies_story_game_terms_for_pazaak_scene(self) -> None:
+        entries = load_pronunciations(SIDECAR_ROOT / "pronunciations.json")
+
+        result = apply_pronunciations(
+            "The Rodian called pazaak a Sabacc game while Gamorreans watched.",
+            entries,
+        )
+
+        self.assertIn("puh-ZAHK", result.text)
+        self.assertIn("suh-BACK", result.text)
+        self.assertIn("Gam-or-REE-ans", result.text)
+        self.assertIn("Pazaak", result.matched_terms)
+        self.assertIn("Sabacc", result.matched_terms)
+        self.assertIn("Gamorreans", result.matched_terms)
+
     def test_does_not_replace_inside_unrelated_words(self) -> None:
         entries = load_pronunciations(SIDECAR_ROOT / "pronunciations.json")
         result = apply_pronunciations("The carton is open.", entries)
