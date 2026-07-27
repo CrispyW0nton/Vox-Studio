@@ -417,6 +417,11 @@ if(BUILD_TESTING)
             COMMAND ${Python3_EXECUTABLE}
                     "${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/test_rvc_sidecar.py"
         )
+        add_test(
+            NAME VoxStudioKotorAudioDatasetTests
+            COMMAND ${Python3_EXECUTABLE}
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/test_kotor_audio_dataset.py"
+        )
     else()
         message(WARNING "Python3 interpreter not found; RVC ONNX tool tests are disabled.")
     endif()

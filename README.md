@@ -182,6 +182,23 @@ python tools\scripts\inspect_onnx_contract.py `
   --out C:\models\hero\graph_contract.json
 ```
 
+Build a clean RVC dataset from KOTOR dialogue:
+
+```powershell
+python tools\scripts\build_kotor_rvc_dataset.py `
+  --source-root 'C:\Games\swkotor\streamwaves' `
+  --selection-dir 'C:\VoiceSelections\Carth' `
+  --output-dir 'C:\RvcDatasets\CarthConversational' `
+  --exclude-name-glob 'nm01aacart*.wav' `
+  --exclude-name-glob 'n_m1bncart*.wav'
+```
+
+KOTOR can store MP3 dialogue behind a misleading WAV header. The dataset tool
+detects and removes the game wrapper before decoding, writes mono PCM training
+audio, rejects noise-like output, and records a manifest beside the dataset.
+The exclusion globs above omit Carth's Endar Spire communicator lines so the
+model learns his conversational recording rather than the in-game radio effect.
+
 ## Development Notes
 
 - Keep audio callbacks lock-free and avoid UI-thread blocking.
