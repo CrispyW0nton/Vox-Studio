@@ -18,6 +18,16 @@ from typing import Any
 MODEL_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
+def source_envelope_gain(
+    source_rms: Any,
+    converted_rms: Any,
+    mix_rate: float,
+) -> Any:
+    """Blend converted loudness toward the performer's source envelope."""
+    bounded_mix_rate = max(0.0, min(1.0, float(mix_rate)))
+    return (source_rms / converted_rms) ** (1.0 - bounded_mix_rate)
+
+
 def parse_args() -> argparse.Namespace:
     local_app_data = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData/Local"))
     parser = argparse.ArgumentParser(description="Vox Studio real-time RVC sidecar")
@@ -90,6 +100,7 @@ class RealtimeRvc:
         self.crossfade_time = 0.05
         self.extra_time = 2.5
         self.index_rate = 0.75 if index_path is not None else 0.0
+        self.source_envelope_mix_rate = 0.0
 
         self.rvc = runtime["RVC"](
             pitch_shift,
@@ -202,6 +213,37 @@ class RealtimeRvc:
         self.rvc.cache_pitch.zero_()
         self.rvc.cache_pitchf.zero_()
 
+    def _rms_envelope(self, audio: Any, output_samples: int) -> Any:
+        frame_length = 4 * self.zc
+        rms = self.functional.avg_pool1d(
+            audio.square()[None, None, :],
+            kernel_size=frame_length,
+            stride=self.zc,
+            padding=frame_length // 2,
+            count_include_pad=False,
+        ).clamp_min(0.0).sqrt()
+        return self.functional.interpolate(
+            rms,
+            size=output_samples + 1,
+            mode="linear",
+            align_corners=True,
+        )[0, 0, :-1]
+
+    def _apply_source_envelope(self, inferred: Any) -> Any:
+        source = self.input_wav[self.extra_frame :]
+        sample_count = min(int(source.shape[0]), int(inferred.shape[0]))
+        source_rms = self._rms_envelope(source[:sample_count], sample_count)
+        converted_rms = self._rms_envelope(
+            inferred[:sample_count],
+            sample_count,
+        ).clamp_min(1e-3)
+        inferred[:sample_count] *= source_envelope_gain(
+            source_rms,
+            converted_rms,
+            self.source_envelope_mix_rate,
+        )
+        return inferred
+
     def convert(self, pcm16_audio: bytes, pitch_shift: int) -> bytes:
         if len(pcm16_audio) % 2:
             raise ValueError("PCM audio must contain complete 16-bit samples")
@@ -244,6 +286,7 @@ class RealtimeRvc:
         )
         if self.output_resampler is not None:
             inferred = self.output_resampler(inferred)
+        inferred = self._apply_source_envelope(inferred)
 
         conv_input = inferred[
             None, None, : self.sola_buffer_frame + self.sola_search_frame

@@ -1,4 +1,5 @@
 import importlib.util
+import math
 import tempfile
 import unittest
 from pathlib import Path
@@ -56,6 +57,25 @@ class RvcSidecarProtocolTests(unittest.TestCase):
         self.assertTrue(health["ok"])
         self.assertEqual("loading", health["cuda_version"])
         self.assertIn("warming up", health["message"])
+
+    def test_source_envelope_gain_preserves_performance_dynamics(self):
+        gain = self.sidecar.source_envelope_gain(0.2, 0.1, 0.0)
+        neutral_gain = self.sidecar.source_envelope_gain(0.2, 0.1, 1.0)
+        blended_gain = self.sidecar.source_envelope_gain(0.2, 0.1, 0.5)
+
+        self.assertAlmostEqual(2.0, gain)
+        self.assertAlmostEqual(1.0, neutral_gain)
+        self.assertAlmostEqual(math.sqrt(2.0), blended_gain)
+
+    def test_source_envelope_gain_clamps_mix_rate(self):
+        self.assertAlmostEqual(
+            2.0,
+            self.sidecar.source_envelope_gain(0.2, 0.1, -1.0),
+        )
+        self.assertAlmostEqual(
+            1.0,
+            self.sidecar.source_envelope_gain(0.2, 0.1, 2.0),
+        )
 
 
 if __name__ == "__main__":
