@@ -56,13 +56,13 @@ _STORY_ROLE_DIRECTIONS = {
 }
 
 _ROLE_PAUSES = {
-    "hook": 0.42,
-    "setup": 0.34,
-    "escalation": 0.30,
-    "turn": 0.45,
-    "climax": 0.26,
-    "payoff": 0.70,
-    "resolution": 0.64,
+    "hook": 0.30,
+    "setup": 0.24,
+    "escalation": 0.22,
+    "turn": 0.28,
+    "climax": 0.18,
+    "payoff": 0.40,
+    "resolution": 0.34,
 }
 
 _OPERATIVE_STOP_WORDS = {
@@ -220,7 +220,7 @@ def split_text_for_synthesis(
 
 def _story_thoughts(
     text: str,
-    maximum_characters: int = 220,
+    maximum_characters: int = 280,
 ) -> tuple[str, ...]:
     normalized = re.sub(r"\s+", " ", text).strip()
     if not normalized:
@@ -234,8 +234,13 @@ def _story_thoughts(
     thoughts: list[str] = []
     for sentence in sentences:
         remaining = sentence
-        while len(remaining) > maximum_characters:
-            window = remaining[: maximum_characters + 1]
+        sentence_limit = (
+            min(maximum_characters, 220)
+            if len(sentences) == 1 and not re.search(r"[.!?]", sentence)
+            else maximum_characters
+        )
+        while len(remaining) > sentence_limit:
+            window = remaining[: sentence_limit + 1]
             preferred = [
                 (match.start(), match.end())
                 for match in re.finditer(
@@ -272,38 +277,36 @@ def _story_thoughts(
                 finishing = [
                     end
                     for _, end in candidates
-                    if len(remaining) - end <= maximum_characters
+                    if len(remaining) - end <= sentence_limit
                 ]
                 boundary = finishing[0] if finishing else candidates[-1][1]
             else:
-                next_boundary = re.search(r"\s+", remaining[maximum_characters:])
+                next_boundary = re.search(r"\s+", remaining[sentence_limit:])
                 if next_boundary is None:
                     thoughts.append(remaining)
                     remaining = ""
                     break
-                boundary = maximum_characters + next_boundary.end()
+                boundary = sentence_limit + next_boundary.end()
             thoughts.append(remaining[:boundary].strip())
             remaining = remaining[boundary:].strip()
         if remaining:
             thoughts.append(remaining)
 
-    refined: list[str] = []
-    for thought in thoughts:
-        payoff = re.search(
-            r"\s+(?=before\s+(?:he|i|she|they|we)\b)",
-            thought,
-            flags=re.IGNORECASE,
+    return tuple(thoughts)
+
+
+def _story_direction(role: str, text: str) -> str:
+    lowered = text.casefold()
+    if role == "payoff" and re.search(
+        r"\b(reached|drew|fired|erupted|exploded|shattered|screaming|"
+        r"attack|charged)\b",
+        lowered,
+    ):
+        return (
+            "Carry conversational momentum through the action, then ease into "
+            "the final understated clause and land it without announcing the joke."
         )
-        if (
-            payoff is not None
-            and payoff.start() >= 20
-            and len(thought) - payoff.end() >= 24
-        ):
-            refined.append(thought[: payoff.start()].strip())
-            refined.append(thought[payoff.end() :].strip())
-        else:
-            refined.append(thought)
-    return tuple(refined)
+    return _STORY_ROLE_DIRECTIONS[role]
 
 
 def _story_role(index: int, count: int, text: str) -> str:
@@ -356,13 +359,15 @@ def _story_delivery(role: str, text: str, overall: str, count: int) -> str:
     if role == "resolution":
         return "natural" if base in {"urgent", "sarcastic"} else base
     if role == "turn":
-        return "wry" if has_dry_humor or base in {"wry", "sarcastic"} else "guarded"
+        if has_dry_humor or base in {"wry", "sarcastic"}:
+            return "wry"
+        return "natural" if base == "natural" else base
     if role == "escalation":
-        return "wry" if has_dry_humor else "guarded"
+        return "wry" if has_dry_humor else base
     if role == "hook":
         return "wry" if has_dry_humor or base in {"wry", "sarcastic"} else "reflective"
-    if role == "setup" and base == "natural":
-        return "measured"
+    if role == "setup" and base in {"urgent", "sarcastic"}:
+        return "natural"
     if base not in {"natural", "urgent", "sarcastic"}:
         return base
     return "natural"
@@ -407,9 +412,18 @@ def _operative_words(text: str, maximum_words: int = 3) -> tuple[str, ...]:
 def story_beat_instruction(beat: StoryBeat, overall: str = "natural") -> str:
     emphasis = ", ".join(beat.emphasis)
     baseline = normalized_delivery_tag(overall)
+    continuity = (
+        "Begin directly, as if the listener is already with you."
+        if beat.index == 1
+        else (
+            "Keep this as one continuous conversation. Carry the rhythm and "
+            "intention forward instead of restarting the performance."
+        )
+    )
     return " ".join(
         (
             "Tell this as a lived event to one specific listener.",
+            continuity,
             delivery_instruction(beat.delivery),
             beat.direction,
             f"Give clean, natural emphasis to: {emphasis}." if emphasis else "",
@@ -418,10 +432,11 @@ def story_beat_instruction(beat: StoryBeat, overall: str = "natural") -> str:
                 "thought rather than forcing one emotion across the story."
             ),
             "Keep the character identity and vocal placement consistent. "
-            "Use a relaxed, intelligible storytelling pace around 150 words per "
-            "minute. Give commas and clause endings enough air. Complete this "
-            "thought before moving on. Do not add words, announce punctuation, "
-            "or over-act.",
+            "Let the pace move naturally between roughly 145 and 165 words per "
+            "minute: ease around reveals and move a little faster through action. "
+            "Use brief human clause breaths, but do not pause at every comma. "
+            "Complete this thought before moving on. Do not add words, announce "
+            "punctuation, or over-act.",
         )
     ).strip()
 
@@ -443,7 +458,7 @@ def plan_story_performance(
                 role=role,
                 text=thought,
                 delivery=delivery,
-                direction=_STORY_ROLE_DIRECTIONS[role],
+                direction=_story_direction(role, thought),
                 emphasis=emphasis,
                 pause_after=_ROLE_PAUSES[role],
             )

@@ -56,11 +56,18 @@
     },
     {
       "term": "Sabacc",
-      "spoken": "sah-BAK"
+      "spoken": "sah back",
+      "guide": "sah-BAK"
     },
     {
       "term": "Gamorreans",
-      "spoken": "Gam-or-REE-ans"
+      "spoken": "ga-maw-ree-uhns",
+      "guide": "ga-maw-ree-uhns"
+    },
+    {
+      "term": "Gamorrean",
+      "spoken": "ga-maw-ree-uhn",
+      "guide": "ga-maw-ree-uhn"
     },
     {
       "term": "Carth",

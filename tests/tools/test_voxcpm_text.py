@@ -14,6 +14,7 @@ from vox_text import (  # noqa: E402
     normalized_delivery_tag,
     plan_story_performance,
     split_text_for_synthesis,
+    story_beat_instruction,
     supported_delivery_tags,
 )
 
@@ -89,49 +90,51 @@ class StoryPerformanceTests(unittest.TestCase):
         plan = plan_story_performance(ATTON_STORY, "natural")
 
         self.assertEqual(plan.mode, STORYTELLING_MODE)
-        self.assertGreaterEqual(len(plan.beats), 7)
+        self.assertGreaterEqual(len(plan.beats), 6)
         self.assertLessEqual(len(plan.beats), 14)
         self.assertEqual(" ".join(beat.text for beat in plan.beats), ATTON_STORY)
         self.assertEqual(plan.beats[0].role, "hook")
         self.assertEqual(plan.beats[-1].role, "payoff")
         self.assertIn("escalation", {beat.role for beat in plan.beats})
-        self.assertIn("climax", {beat.role for beat in plan.beats})
-        self.assertIn("measured", {beat.delivery for beat in plan.beats})
+        self.assertIn("natural", {beat.delivery for beat in plan.beats})
         self.assertIn("wry", {beat.delivery for beat in plan.beats})
-        self.assertIn("urgent", {beat.delivery for beat in plan.beats})
-        self.assertEqual(
-            plan.beats[-1].text,
-            "before I even finished my drink.",
-        )
+        self.assertTrue(plan.beats[-1].text.endswith("before I even finished my drink."))
         self.assertFalse(any(beat.text.endswith("mostly") for beat in plan.beats))
         self.assertEqual(
             next(beat.text for beat in plan.beats if "lightspeed" in beat.text),
             (
                 "He reached for his sidearm, I cleared leather faster than a "
-                "Republic cruiser jumping to lightspeed,"
+                "Republic cruiser jumping to lightspeed, and the whole cantina "
+                "erupted into a lovely, glowing mess of blaster bolts, shattered "
+                "glass, and screaming gamorreans before I even finished my drink."
             ),
         )
-        self.assertIn(
-            "and screaming gamorreans",
-            plan.beats[-2].text,
-        )
-        self.assertNotEqual(plan.beats[-2].text, "and screaming gamorreans")
+        self.assertIn("and screaming gamorreans", plan.beats[-1].text)
+        self.assertIn("ease into the final understated clause", plan.beats[-1].direction)
         house_reveal = next(
             beat for beat in plan.beats if "house always wins" in beat.text
         )
         self.assertEqual(house_reveal.role, "turn")
         self.assertEqual(house_reveal.delivery, "wry")
+        cards_thought = next(
+            beat for beat in plan.beats if "when to fold your hand" in beat.text
+        )
+        self.assertIn("and when to let the cards speak for themselves", cards_thought.text)
+        self.assertTrue(cards_thought.text.endswith("Onderon."))
 
     def test_story_plan_directs_intent_emphasis_and_thought_change(self) -> None:
         plan = plan_story_performance(ATTON_STORY, "wry")
 
         self.assertTrue(all(beat.direction for beat in plan.beats))
         self.assertTrue(all(beat.emphasis for beat in plan.beats))
-        self.assertTrue(all(0.20 <= beat.pause_after <= 0.75 for beat in plan.beats))
+        self.assertTrue(all(0.15 <= beat.pause_after <= 0.40 for beat in plan.beats))
         self.assertIn("one listener", plan.summary)
         self.assertIn("land", plan.beats[-1].direction.casefold())
         self.assertIn("unhurried", plan.beats[0].direction.casefold())
         self.assertNotEqual(plan.beats[0].direction, plan.beats[-1].direction)
+        continuing_instruction = story_beat_instruction(plan.beats[1], "wry")
+        self.assertIn("continuous conversation", continuing_instruction)
+        self.assertIn("do not pause at every comma", continuing_instruction)
 
     def test_short_story_remains_a_single_complete_beat(self) -> None:
         text = "I found the map, and now we know where to go."

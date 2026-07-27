@@ -334,20 +334,31 @@ class PronunciationTests(unittest.TestCase):
         entries = load_pronunciations(SIDECAR_ROOT / "pronunciations.json")
 
         result = apply_pronunciations(
-            "The Rodian called pazaak a Sabacc game while Gamorreans watched.",
+            "The Rodian called pazaak a Sabacc game while a Gamorrean watched.",
             entries,
         )
 
         self.assertIn("puh zock", result.text)
-        self.assertIn("sah-BAK", result.text)
-        self.assertIn("Gam-or-REE-ans", result.text)
+        self.assertIn("sah back", result.text)
+        self.assertIn("ga-maw-ree-uhn", result.text)
         self.assertIn("Pazaak", result.matched_terms)
         self.assertIn("Sabacc", result.matched_terms)
-        self.assertIn("Gamorreans", result.matched_terms)
+        self.assertIn("Gamorrean", result.matched_terms)
 
         pazaak = next(entry for entry in entries if entry.term == "Pazaak")
         self.assertEqual(pazaak.guide, "puh-ZAHK")
         self.assertIn("Pazak", pazaak.aliases)
+
+        sabacc = next(entry for entry in entries if entry.term == "Sabacc")
+        self.assertEqual(sabacc.guide, "sah-BAK")
+
+    def test_applies_plural_gamorrean_pronunciation(self) -> None:
+        entries = load_pronunciations(SIDECAR_ROOT / "pronunciations.json")
+
+        result = apply_pronunciations("Two Gamorreans entered.", entries)
+
+        self.assertEqual(result.text, "Two ga-maw-ree-uhns entered.")
+        self.assertEqual(result.matched_terms, ("Gamorreans",))
 
     def test_does_not_replace_inside_unrelated_words(self) -> None:
         entries = load_pronunciations(SIDECAR_ROOT / "pronunciations.json")
