@@ -256,6 +256,160 @@ def detect_delivery(
     )
 
 
+def specialize_delivery(
+    delivery_profile: str,
+    reading: DeliveryReading,
+    features: Mapping[str, float],
+    transcript: str,
+) -> DeliveryReading:
+    if delivery_profile.casefold() != "carth":
+        return reading
+
+    lowered = re.sub(r"\s+", " ", transcript.casefold()).strip()
+    energy_slope = _value(features, "energy_slope_db", 0.0)
+    pause_ratio = _value(features, "pause_ratio", 0.08)
+
+    def specialized(label: str, instruction: str) -> DeliveryReading:
+        return DeliveryReading(
+            label=label,
+            instruction=instruction,
+            pace=reading.pace,
+            expressiveness=reading.expressiveness,
+            intensity=reading.intensity,
+        )
+
+    genuine_concern = bool(
+        re.search(
+            r"(?:\bwhat if\b|\bshouldn't free\b|\bshould not free\b|"
+            r"\bwant to get .+ back\b|\bhelp get .+ acquitted\b)",
+            lowered,
+        )
+    )
+    strong_wry_cue = bool(
+        re.search(
+            r"(?:\byeah,?\s+right\b|\b(?:oh|well),?\s+great\b|"
+            r"\bwonderful\b|\bpopularity contest\b|\bdo we really have "
+            r"another choice\b|\bsort of funny\b|\bor did you miss that\b|"
+            r"\bjust let .+ suffer,?\s+right\b|\bi'm sure you are\b|"
+            r"\bstupidity and ignorance will never go out of style\b)",
+            lowered,
+        )
+    )
+    wry_cue = strong_wry_cue or (
+        reading.label == "sarcastic" and not genuine_concern
+    )
+    if wry_cue:
+        return specialized(
+            "wry",
+            (
+                "Use dry skepticism and restrained exasperation. Keep the irony "
+                "morally pointed rather than playful, smug, or broadly comic."
+            ),
+        )
+
+    wounded_cue = bool(
+        re.search(
+            r"(?:\bmy wife\b|\bmy family\b|\bmy son\b|\byour mother\b|"
+            r"\bmy home ?world\b|\bi failed you\b|\bi have to confess\b|"
+            r"\bthe pain\b|\bheld her while\b|\bdidn't abandon you\b)",
+            lowered,
+        )
+    )
+    if wounded_cue and (energy_slope <= 2.0 or pause_ratio >= 0.10):
+        return specialized(
+            "wounded",
+            (
+                "Keep the hurt contained and personal. Preserve hesitations and "
+                "vulnerability without turning grief into shouting or melodrama."
+            ),
+        )
+
+    warm_cue = bool(
+        re.search(
+            r"(?:\bi'm proud of you\b|\bi am proud of you\b|\bi'm glad\b|"
+            r"\bgood to see you\b|\bbest of luck\b|\bthank you\b|"
+            r"\byou're alive\b|\byou are alive\b|\bthings are looking up\b)",
+            lowered,
+        )
+    )
+    if warm_cue:
+        return specialized(
+            "warm",
+            (
+                "Use earnest, understated warmth and relief. Keep it grounded and "
+                "sincere rather than sentimental or overly bright."
+            ),
+        )
+
+    guarded_cue = bool(
+        re.search(
+            r"(?:\bwouldn't trust\b|\bdo not trust\b|\bdon't trust\b|"
+            r"\bbetray you\b|\bbetrayed us\b|\bthis could be a trap\b|"
+            r"\bwatch yourself\b|\bcareful\b|\bevasion\b|\bhiding\b|"
+            r"\bexpect some answers\b|\bdon't believe\b|\bdoesn't believe\b)",
+            lowered,
+        )
+    )
+    if guarded_cue and reading.label != "urgent":
+        return specialized(
+            "guarded",
+            (
+                "Use guarded suspicion and clipped restraint. Let distrust sit "
+                "under the words without adding anger or theatrical menace."
+            ),
+        )
+
+    disapproval_cue = bool(
+        re.search(
+            r"(?:\bdon't approve\b|\bdo not approve\b|\bshouldn't have\b|"
+            r"\bshould not have\b|\bthis isn't right\b|\bthis is not right\b|"
+            r"\bdoesn't deserve\b|\bdoes not deserve\b|"
+            r"\bcan't believe you're\b|\bcannot believe you are\b|"
+            r"\btwisted .+ credits\b|\btaking contracts to kill\b)",
+            lowered,
+        )
+    )
+    if disapproval_cue:
+        return specialized(
+            "disapproving",
+            (
+                "Use firm moral disapproval with controlled frustration. Keep the "
+                "judgment earnest and protective rather than self-righteous."
+            ),
+        )
+
+    resolve_cue = bool(
+        re.search(
+            r"(?:\bwe have to\b|\bwe need to\b|\byou have to\b|"
+            r"\bwe must\b|\bi swear\b|\bprotect\b|\brescue\b|\bsave\b|"
+            r"\bdestroy the\b|\bstop them\b|\blet's move\b|\blet us move\b)",
+            lowered,
+        )
+    )
+    if resolve_cue and reading.label in {"neutral", "emphatic", "urgent", "measured"}:
+        return specialized(
+            "resolute",
+            (
+                "Use steady protective resolve and military focus. Preserve the "
+                "performer's intensity without making the line agitated."
+            ),
+        )
+
+    if reading.label == "reflective":
+        return reading
+
+    if reading.label == "sarcastic" and genuine_concern:
+        return specialized(
+            "guarded",
+            (
+                "Use cautious, guarded concern. Preserve the performer's doubt "
+                "without turning the question into sarcasm or accusation."
+            ),
+        )
+
+    return reading
+
+
 _ADJACENT_DELIVERIES = {
     frozenset(("calm", "neutral")),
     frozenset(("calm", "measured")),
@@ -266,6 +420,12 @@ _ADJACENT_DELIVERIES = {
     frozenset(("emphatic", "urgent")),
     frozenset(("emphatic", "sarcastic")),
     frozenset(("questioning", "sarcastic")),
+    frozenset(("wry", "sarcastic")),
+    frozenset(("guarded", "questioning")),
+    frozenset(("wounded", "reflective")),
+    frozenset(("warm", "calm")),
+    frozenset(("disapproving", "emphatic")),
+    frozenset(("resolute", "urgent")),
 }
 
 

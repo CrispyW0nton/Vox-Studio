@@ -31,6 +31,7 @@ from vox_delivery import (
     delivery_distance,
     detect_delivery,
     load_pronunciations,
+    specialize_delivery,
 )
 from vox_profiles import (
     activate_lora,
@@ -296,11 +297,12 @@ def style_features(path: Path, transcript: str) -> dict[str, float]:
 def performance_delivery(
     features: dict[str, float],
     transcript: str,
+    delivery_profile: str = "",
 ) -> DeliveryReading:
     with delivery_lock:
         reading = detect_delivery(features, transcript, tuple(delivery_history))
         delivery_history.append(dict(features))
-    return reading
+    return specialize_delivery(delivery_profile, reading, features, transcript)
 
 
 def select_style_anchor(
@@ -352,6 +354,12 @@ def build_control_instruction(
         "measured": "Measured, deliberate delivery.",
         "neutral": "Natural, neutral delivery.",
         "reflective": "Warm, reflective restraint; preserve the sense of memory.",
+        "wry": "Dry skepticism and restrained exasperation; never playful.",
+        "guarded": "Guarded suspicion with clipped restraint; do not add anger.",
+        "wounded": "Contained hurt and vulnerability; avoid melodrama.",
+        "warm": "Earnest, understated warmth and relief.",
+        "disapproving": "Firm moral disapproval with controlled frustration.",
+        "resolute": "Steady protective resolve and military focus.",
         "emphatic": "Use only the performer's emphasis.",
         "urgent": "Match the performer's urgency without exceeding it.",
         "questioning": "Preserve the performer's questioning cadence.",
@@ -479,7 +487,11 @@ def render_performance(
             )
 
         performance = style_features(prompt_path, spoken_text)
-        delivery = performance_delivery(performance, spoken_text)
+        delivery = performance_delivery(
+            performance,
+            spoken_text,
+            str(profile.get("delivery_profile", "")),
+        )
         style_anchor = (
             None
             if profile.get("use_stable_character_identity", False)

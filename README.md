@@ -115,6 +115,11 @@ armed automatically and plays the character phrase through the selected
 headphones. **Live Input** is independent: turn it off to hear only the
 character result, or on to hear the unchanged mic while performing.
 
+Carth adds a character-specific palette derived from his game dialogue: dry
+wry skepticism, guarded distrust, contained vulnerability, understated warmth,
+moral disapproval, and protective resolve. These refine his manner without
+replacing phrase-level pace, pitch, pauses, or intensity.
+
 Live transcription uses Whisper Turbo on supported GPUs and supplies a local
 KOTOR vocabulary for character, place, and ship names. If Turbo cannot load,
 Vox Studio falls back to the smaller cached English recognizer. Entering the

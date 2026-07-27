@@ -38,6 +38,7 @@ class ProfileSpec:
     controlled_cfg_value: float = 0.0
     lora_training_name: str = ""
     use_stable_character_identity: bool = False
+    delivery_profile: str = ""
 
 
 def default_specs() -> tuple[ProfileSpec, ...]:
@@ -68,6 +69,7 @@ def default_specs() -> tuple[ProfileSpec, ...]:
             controlled_cfg_value=2.0,
             lora_training_name="carth",
             use_stable_character_identity=True,
+            delivery_profile="carth",
         ),
         ProfileSpec(
             ("zsJfu6NHUhZIGZKxw0w0",),
@@ -487,6 +489,7 @@ def write_profile(root: Path, spec: ProfileSpec) -> None:
             "use_stable_character_identity": (
                 spec.use_stable_character_identity and adapter_installed
             ),
+            "delivery_profile": spec.delivery_profile,
         }
         (profile_root / "profile.json").write_text(
             json.dumps(profile, indent=2),

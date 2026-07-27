@@ -10,12 +10,14 @@ SIDECAR_ROOT = Path(__file__).resolve().parents[2] / "third_party" / "voxcpm_sid
 sys.path.insert(0, str(SIDECAR_ROOT))
 
 from vox_delivery import (  # noqa: E402
+    DeliveryReading,
     apply_pronunciations,
     build_transcription_hotwords,
     canonicalize_transcription,
     delivery_distance,
     detect_delivery,
     load_pronunciations,
+    specialize_delivery,
 )
 
 
@@ -179,6 +181,95 @@ class DeliveryDetectionTests(unittest.TestCase):
         self.assertLess(matching, mismatched)
 
 
+class CharacterDeliveryTests(unittest.TestCase):
+    FEATURES = {
+        "characters_per_second": 15.0,
+        "pitch_range_semitones": 8.0,
+        "pitch_variation_semitones": 2.8,
+        "pitch_slope_semitones": -1.0,
+        "dynamic_db": 13.0,
+        "pause_ratio": 0.08,
+        "energy_slope_db": -1.0,
+        "terminal_pitch_delta": -1.0,
+    }
+
+    def carth_delivery(self, text: str):
+        reading = detect_delivery(self.FEATURES, text)
+        return specialize_delivery("carth", reading, self.FEATURES, text)
+
+    def test_maps_carth_sarcasm_to_dry_wry_skepticism(self) -> None:
+        reading = self.carth_delivery(
+            "So it's a popularity contest, basically? Wonderful."
+        )
+
+        self.assertEqual(reading.label, "wry")
+        self.assertIn("rather than playful", reading.instruction)
+
+    def test_keeps_carth_concern_distinct_from_sarcasm(self) -> None:
+        reading = self.carth_delivery(
+            (
+                "Are you sure about this? I want to get Bastila back, "
+                "but what if they find out?"
+            )
+        )
+
+        self.assertEqual(reading.label, "guarded")
+        self.assertIn("without turning the question into sarcasm", reading.instruction)
+
+    def test_maps_carth_guarded_distrust(self) -> None:
+        reading = specialize_delivery(
+            "carth",
+            DeliveryReading("reflective", "", 0.5, 0.5, 0.5),
+            self.FEATURES,
+            "I've seen an evasion or two in my time, enough to know when I hear it."
+        )
+
+        self.assertEqual(reading.label, "guarded")
+
+    def test_maps_carth_contained_grief(self) -> None:
+        reading = self.carth_delivery(
+            "My family was destroyed that day and my wife died in the bombardment."
+        )
+
+        self.assertEqual(reading.label, "wounded")
+
+    def test_maps_carth_understated_warmth(self) -> None:
+        reading = specialize_delivery(
+            "carth",
+            DeliveryReading("emphatic", "", 0.5, 0.7, 0.7),
+            {**self.FEATURES, "energy_slope_db": 6.8},
+            "I'm proud of you. Not everyone could have done that."
+        )
+
+        self.assertEqual(reading.label, "warm")
+
+    def test_maps_carth_moral_disapproval(self) -> None:
+        reading = self.carth_delivery(
+            "This isn't right. We should be helping people, not hurting them."
+        )
+
+        self.assertEqual(reading.label, "disapproving")
+
+    def test_maps_carth_protective_resolve(self) -> None:
+        reading = self.carth_delivery(
+            "We have to rescue Bastila and stop them before they escape."
+        )
+
+        self.assertEqual(reading.label, "resolute")
+
+    def test_does_not_apply_carth_palette_to_other_profiles(self) -> None:
+        reading = detect_delivery(self.FEATURES, "We have to rescue Bastila.")
+
+        specialized = specialize_delivery(
+            "atton",
+            reading,
+            self.FEATURES,
+            "We have to rescue Bastila.",
+        )
+
+        self.assertEqual(specialized, reading)
+
+
 class PronunciationTests(unittest.TestCase):
     def test_builds_unique_game_vocabulary_for_transcription(self) -> None:
         entries = load_pronunciations(SIDECAR_ROOT / "pronunciations.json")
@@ -218,7 +309,7 @@ class PronunciationTests(unittest.TestCase):
 
         self.assertEqual(
             result.text,
-            "Bae-oh Dure met Karth on Tee-lohs before leaving for Narr Sha-Da.",
+            "Bae-oh Dure met Karth on TEE-los before leaving for Narr Sha-Da.",
         )
         self.assertEqual(
             result.matched_terms,
