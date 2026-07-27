@@ -9,6 +9,7 @@
 #include "db/VoiceRepository.h"
 #include "rvc/RvcModelRegistry.h"
 #include "rvc/RvcSidecar.h"
+#include "voxcpm/VoxCpmSidecar.h"
 
 #include <QByteArray>
 #include <QFutureWatcher>
@@ -139,6 +140,7 @@ private:
     db::VoiceRepository m_voiceRepository;
     rvc::RvcModelRegistry m_rvcModelRegistry;
     rvc::RvcSidecar m_rvcSidecar;
+    voxcpm::VoxCpmSidecar m_voxCpmSidecar;
     std::shared_ptr<rvc::OnnxRvcEngine> m_nativeRvcEngine;
     std::optional<core::Project> m_project;
     std::vector<audio::AudioDeviceInfo> m_inputDevices;

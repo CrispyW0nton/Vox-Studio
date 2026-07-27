@@ -162,6 +162,38 @@ TEST_CASE("take manager stores STS takes as active Opus takes", "[core][takes][s
     CHECK(takes.value().front().source == "sts");
 }
 
+TEST_CASE("take manager labels VoxCPM2 performance takes", "[core][takes][voxcpm]") {
+    const TemporaryDirectory directory;
+    const auto projectRoot = directory.path() / "VoxCpmTakes.vox";
+
+    const voxstudio::db::ProjectRepository projectRepository;
+    auto project = projectRepository.createProject(projectRoot, "VoxCpmTakes");
+    REQUIRE(project.hasValue());
+
+    const voxstudio::db::VoiceRepository voiceRepository;
+    const voxstudio::db::VoiceRecord voice{
+        "voice_carth", "Carth", "ivc", "{}", "{}", "2026-01-01T00:00:00Z",
+        "2026-01-01T00:00:00Z"};
+    REQUIRE(voiceRepository.upsertVoice(projectRoot, voice).hasValue());
+
+    auto parsed = voxstudio::io::scripts::importScriptFile(fixturePath("scripts/sample.txt"));
+    REQUIRE(parsed.hasValue());
+    const voxstudio::db::ScriptRepository scriptRepository;
+    auto imported =
+        scriptRepository.importScript(projectRoot, parsed.value(), {{"Alice", "voice_carth"}});
+    REQUIRE(imported.hasValue());
+
+    voxstudio::core::TakeManager manager;
+    auto savedTake = manager.saveVoxCpmTake(
+        projectRoot, imported.value().lines.front().id, "voice_carth", sinePcm());
+
+    REQUIRE(savedTake.hasValue());
+    CHECK(savedTake.value().take.source == "voxcpm2");
+    CHECK(savedTake.value().take.metadataJson.find("\"engine\":\"voxcpm2\"") !=
+          std::string::npos);
+    CHECK(std::filesystem::exists(savedTake.value().absolutePath));
+}
+
 TEST_CASE("take manager stores local RVC takes with model id", "[core][takes][rvc]") {
     const TemporaryDirectory directory;
     const auto projectRoot = directory.path() / "RvcTakes.vox";

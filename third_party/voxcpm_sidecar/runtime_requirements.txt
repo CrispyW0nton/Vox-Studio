@@ -1,0 +1,8 @@
+fastapi==0.140.0
+faster-whisper==1.2.1
+python-multipart==0.0.32
+scipy==1.18.0
+soundfile==0.14.0
+triton-windows==3.7.1.post27
+uvicorn==0.51.0
+voxcpm==2.0.3

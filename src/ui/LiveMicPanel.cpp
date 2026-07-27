@@ -1,13 +1,13 @@
 #include "ui/LiveMicPanel.h"
 
 #include "audio/AudioFile.h"
-#include "net/elevenlabs/StsApi.h"
+#include "core/TakeManager.h"
 #include "rvc/OnnxRvcEngine.h"
 #include "rvc/RvcClient.h"
-#include "secrets/DpapiVault.h"
 #include "ui/LiveAudioProcessor.h"
 #include "ui/RvcModelManagerDialog.h"
 #include "ui/TakeListWidget.h"
+#include "voxcpm/VoxCpmClient.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -42,6 +42,7 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -105,15 +106,6 @@ template <typename TWidget, typename... TArgs>
     return label;
 }
 
-[[nodiscard]] QString apiErrorText(const net::elevenlabs::ApiError& error) {
-    if (error.statusCode > 0) {
-        return QStringLiteral("%1 (HTTP %2)")
-            .arg(QString::fromStdString(error.message))
-            .arg(error.statusCode);
-    }
-    return QString::fromStdString(error.message);
-}
-
 [[nodiscard]] QString voiceBadgeText(QString name) {
     name = name.trimmed();
     if (name.isEmpty()) {
@@ -174,11 +166,6 @@ void appendPlaybackWarning(QString& warning, const QString& route, const core::E
     return queuedAny;
 }
 
-[[nodiscard]] core::Expected<std::string> loadApiKey() {
-    const secrets::DpapiVault vault;
-    return vault.loadElevenLabsApiKey();
-}
-
 [[nodiscard]] std::vector<std::uint8_t> bytesFromByteArray(const QByteArray& bytes) {
     const auto* first = reinterpret_cast<const std::uint8_t*>(bytes.constData());
     return {first, first + bytes.size()};
@@ -190,63 +177,58 @@ void appendPlaybackWarning(QString& warning, const QString& route, const core::E
 }
 
 [[nodiscard]] CloudConversionResult convertCloudChunk(
+    const std::string& endpoint,
     const std::string& voiceId,
     const QByteArray& inputPcmBytes,
+    const std::string& transcript,
     const PlaybackTargets playbackTargets,
     const std::shared_ptr<std::atomic_bool>& cancelFlag) {
     if (cancelFlag != nullptr && cancelFlag->load(std::memory_order_acquire)) {
-        return CloudConversionResult{false, QStringLiteral("Cloud conversion cancelled.")};
+        return CloudConversionResult{false, QStringLiteral("VoxCPM2 rendering cancelled.")};
     }
 
-    auto apiKey = loadApiKey();
-    if (!apiKey) {
-        return CloudConversionResult{false, QString::fromStdString(apiKey.error().message)};
-    }
-
-    net::elevenlabs::StsRequest request;
+    voxcpm::VoxCpmRenderRequest request;
     request.voiceId = voiceId;
     request.pcm16Audio = bytesFromByteArray(inputPcmBytes);
-    request.outputFormat = "pcm_24000";
-    const auto outputSampleRate =
-        net::elevenlabs::pcmSampleRateFromOutputFormat(request.outputFormat);
+    request.sampleRate = kCloudInputSampleRate;
+    request.channels = kCloudOutputChannels;
+    request.transcript = transcript;
 
-    const auto onChunk = [cancelFlag](std::span<const std::uint8_t>) {
+    const voxcpm::VoxCpmClient client{endpoint};
+    auto rendered = client.renderPerformance(request);
+    if (!rendered) {
         if (cancelFlag != nullptr && cancelFlag->load(std::memory_order_acquire)) {
-            return false;
+            return CloudConversionResult{false, QStringLiteral("VoxCPM2 rendering cancelled.")};
         }
-        return true;
-    };
-
-    const net::elevenlabs::StsApi api{std::move(apiKey).value()};
-    auto streamed = api.streamSpeech(request, onChunk);
-    if (!streamed) {
-        if (cancelFlag != nullptr && cancelFlag->load(std::memory_order_acquire)) {
-            return CloudConversionResult{false, QStringLiteral("Cloud conversion cancelled.")};
-        }
-        return CloudConversionResult{false, apiErrorText(streamed.error())};
+        return CloudConversionResult{
+            false, QString::fromStdString(rendered.error().message)};
     }
 
     QString playbackWarning;
     const auto playbackQueued = queuePcmForTargets(playbackTargets,
-                                                   streamed.value().audioBytes,
-                                                   outputSampleRate,
+                                                   rendered.value().pcm16Audio,
+                                                   rendered.value().sampleRate,
                                                    kCloudOutputChannels,
                                                    playbackWarning);
     const auto outputFrames =
-        streamed.value().audioBytes.size() / (sizeof(std::int16_t) * kCloudOutputChannels);
+        rendered.value().pcm16Audio.size() / (sizeof(std::int16_t) * kCloudOutputChannels);
     const auto playbackDurationMs =
         playbackQueued
             ? static_cast<int>(std::ceil(
                   ((static_cast<double>(outputFrames) * 1000.0) /
-                   static_cast<double>(outputSampleRate)) *
+                   static_cast<double>(rendered.value().sampleRate)) *
                   playbackTargets.durationScale))
             : 0;
+    const auto inputSeconds =
+        static_cast<double>(inputPcmBytes.size()) /
+        static_cast<double>(kCloudInputSampleRate * sizeof(std::int16_t));
     return CloudConversionResult{true,
-                                 QStringLiteral("Character phrase converted."),
+                                 QStringLiteral("VoxCPM2 character phrase ready in %1 ms.")
+                                     .arg(rendered.value().latencyMs),
                                  playbackWarning,
-                                 byteArrayFromBytes(streamed.value().audioBytes),
-                                 streamed.value().inputSeconds,
-                                 outputSampleRate,
+                                 byteArrayFromBytes(rendered.value().pcm16Audio),
+                                 inputSeconds,
+                                 rendered.value().sampleRate,
                                  playbackDurationMs};
 }
 
@@ -462,7 +444,7 @@ LiveMicPanel::LiveMicPanel(QWidget* parent)
         addOwnedWidget<QLabel>(*transportTextLayout, QStringLiteral("No voice selected"));
     m_selectedVoiceLabel->setObjectName(QStringLiteral("LiveMicSelectedVoiceName"));
     m_selectedEngineLabel =
-        addOwnedWidget<QLabel>(*transportTextLayout, QStringLiteral("ElevenLabs performance"));
+        addOwnedWidget<QLabel>(*transportTextLayout, QStringLiteral("VoxCPM2 performance"));
     m_selectedEngineLabel->setObjectName(QStringLiteral("LiveMicSelectedEngineLabel"));
     m_outputRouteLabel = addOwnedWidget<QLabel>(*transportTextLayout,
                                                 QStringLiteral("Output: default"));
@@ -850,8 +832,23 @@ void LiveMicPanel::refreshVoices() {
     }
 
     auto voiceRecords = std::move(voices).value();
+    std::erase_if(voiceRecords, [](const db::VoiceRecord& voice) {
+        return voice.origin == "premade";
+    });
     const auto priority = [](const db::VoiceRecord& voice) {
-        return voice.origin == "ivc" || voice.origin == "pvc" ? 0 : 1;
+        static constexpr std::array<std::string_view, 7> preferredNames{
+            "Kreia",
+            "Xaria - Ancient Dathomir Witch Prototype",
+            "Atton",
+            "Carth",
+            "Bao-Dur",
+            "Alan Watts",
+            "Carth HQ",
+        };
+        const auto found = std::ranges::find(preferredNames, std::string_view{voice.name});
+        return found == preferredNames.end()
+                   ? static_cast<int>(preferredNames.size())
+                   : static_cast<int>(std::distance(preferredNames.begin(), found));
     };
     std::stable_sort(voiceRecords.begin(),
                      voiceRecords.end(),
@@ -1057,7 +1054,7 @@ void LiveMicPanel::updateVoiceHud() {
         const auto engineText =
             mode == QStringLiteral("Local") ? QStringLiteral("Local RVC engine")
             : mode == QStringLiteral("Performance")
-                ? QStringLiteral("ElevenLabs performance (converts after each pause)")
+                ? QStringLiteral("VoxCPM2 HQ (matches your delivery after each pause)")
                 : QStringLiteral("Direct microphone monitor");
         m_selectedEngineLabel->setText(engineText);
     }
@@ -1226,7 +1223,7 @@ void LiveMicPanel::toggleMonitor(const bool enabled) {
 
 void LiveMicPanel::toggleCloudConversion() {
     if (m_localRvcActive) {
-        setStatusText(QStringLiteral("Stop Local RVC before starting a cloud performance."));
+        setStatusText(QStringLiteral("Stop Local RVC before starting an HQ performance."));
         return;
     }
 
@@ -1243,7 +1240,7 @@ void LiveMicPanel::toggleCloudConversion() {
             stopAudioProcessor(Qt::BlockingQueuedConnection);
             m_capture.stop();
         }
-        setStatusText(QStringLiteral("Finishing the last character phrase."));
+        setStatusText(QStringLiteral("Finishing the last VoxCPM2 character phrase."));
         updateTransportState();
         saveCloudRecordingIfReady();
         return;
@@ -1260,6 +1257,11 @@ void LiveMicPanel::toggleCloudConversion() {
     if (!ensureCaptureRunning()) {
         return;
     }
+    auto sidecar = m_voxCpmSidecar.start();
+    if (!sidecar) {
+        setStatusText(QString::fromStdString(sidecar.error().message));
+        return;
+    }
 
     m_cloudCancelFlag = std::make_shared<std::atomic_bool>(false);
     m_pendingCloudChunks.clear();
@@ -1270,6 +1272,7 @@ void LiveMicPanel::toggleCloudConversion() {
     m_cloudSeconds = 0.0;
     m_costLabel->setText(QStringLiteral("Character audio: 0.0 s"));
     m_cloudActive = true;
+    setHearSelfChecked(true);
     m_cloudButton->setText(QStringLiteral("Stop & Save"));
     m_cancelCloudButton->setEnabled(true);
     m_modeCombo->setCurrentText(QStringLiteral("Performance"));
@@ -1281,9 +1284,9 @@ void LiveMicPanel::toggleCloudConversion() {
     setStatusText(
         liveInput
             ? QStringLiteral(
-                  "Performance active. Live input is on; the character plays after each pause.")
+                  "VoxCPM2 is active. Live input is on; the character plays after each pause.")
             : QStringLiteral(
-                  "Performance active. Speak naturally; the character plays after each pause."));
+                  "VoxCPM2 is active. Speak naturally; the character plays after each pause."));
     updateTransportState();
 }
 
@@ -1314,7 +1317,7 @@ void LiveMicPanel::cancelCloudConversion() {
             m_capture.stop();
         }
     }
-    setStatusText(QStringLiteral("Cloud conversion cancelled."));
+    setStatusText(QStringLiteral("VoxCPM2 rendering cancelled."));
     updateTransportState();
 }
 
@@ -1736,9 +1739,20 @@ void LiveMicPanel::startNextCloudChunk() {
             .arg(static_cast<int>(m_pendingCloudChunks.size())));
     const auto playbackTargets = currentPlaybackTargets();
     auto cancelFlag = m_cloudCancelFlag;
-    m_cloudWatcher->setFuture(QtConcurrent::run([voiceId, chunk, playbackTargets, cancelFlag]() {
-        return convertCloudChunk(voiceId, chunk, playbackTargets, cancelFlag);
-    }));
+    const auto endpoint = m_voxCpmSidecar.status().endpoint;
+    auto transcript = m_lineIdEdit == nullptr
+                          ? std::string{}
+                          : m_lineIdEdit->text().trimmed().toStdString();
+    m_cloudWatcher->setFuture(
+        QtConcurrent::run([endpoint,
+                           voiceId,
+                           chunk,
+                           transcript,
+                           playbackTargets,
+                           cancelFlag]() {
+            return convertCloudChunk(
+                endpoint, voiceId, chunk, transcript, playbackTargets, cancelFlag);
+        }));
 }
 
 void LiveMicPanel::finishCloudPlaybackGuard(const int playbackDurationMs) {
@@ -1807,7 +1821,7 @@ void LiveMicPanel::saveCloudRecordingIfReady() {
         return;
     }
     if (!m_project.has_value() || m_recordingLineId.empty()) {
-        setStatusText(QStringLiteral("Cloud conversion finished. STS take was not saved."));
+        setStatusText(QStringLiteral("VoxCPM2 finished. The take was not saved."));
         m_recordedCloudPcm.clear();
         return;
     }
@@ -1824,11 +1838,10 @@ void LiveMicPanel::saveCloudRecordingIfReady() {
     }
 
     core::TakeManager takeManager;
-    auto saved = takeManager.saveStsTake(m_project->rootPath(),
-                                         m_recordingLineId,
-                                         m_recordingLineVoiceId,
-                                         audio.value(),
-                                         core::defaultVoiceSettings());
+    auto saved = takeManager.saveVoxCpmTake(m_project->rootPath(),
+                                            m_recordingLineId,
+                                            m_recordingLineVoiceId,
+                                            audio.value());
     if (!saved) {
         setStatusText(QString::fromStdString(saved.error().message));
         m_recordedCloudPcm.clear();

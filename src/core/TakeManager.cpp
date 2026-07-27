@@ -168,6 +168,8 @@ Expected<SavedTake> saveVoiceTake(const db::TakeRepository& repository,
     metadata["codec"] = "opus";
     if (source == "sts") {
         metadata["engine"] = "elevenlabs_sts";
+    } else if (source == "voxcpm2") {
+        metadata["engine"] = "voxcpm2";
     } else if (source == "rvc_local") {
         metadata["engine"] = "rvc_sidecar";
     } else {
@@ -213,6 +215,21 @@ TakeManager::saveStsTake(const std::filesystem::path& projectRoot,
                          const audio::PcmAudioBuffer& audio,
                          const VoiceSettings& settings) const {
     return saveVoiceTake(m_repository, projectRoot, lineId, voiceId, {}, audio, settings, "sts");
+}
+
+Expected<SavedTake>
+TakeManager::saveVoxCpmTake(const std::filesystem::path& projectRoot,
+                            const std::string& lineId,
+                            const std::string& voiceId,
+                            const audio::PcmAudioBuffer& audio) const {
+    return saveVoiceTake(m_repository,
+                         projectRoot,
+                         lineId,
+                         voiceId,
+                         {},
+                         audio,
+                         defaultVoiceSettings(),
+                         "voxcpm2");
 }
 
 Expected<SavedTake>

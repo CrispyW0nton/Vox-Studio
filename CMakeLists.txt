@@ -119,6 +119,10 @@ set(VOXSTUDIO_CORE_SOURCES
     src/rvc/RvcSidecar.h
     src/secrets/DpapiVault.cpp
     src/secrets/DpapiVault.h
+    src/voxcpm/VoxCpmClient.cpp
+    src/voxcpm/VoxCpmClient.h
+    src/voxcpm/VoxCpmSidecar.cpp
+    src/voxcpm/VoxCpmSidecar.h
 )
 
 add_library(VoxStudioCore STATIC ${VOXSTUDIO_CORE_SOURCES})
@@ -274,6 +278,7 @@ if(BUILD_TESTING)
         tests/unit/test_smoke.cpp
         tests/unit/test_voice_repository.cpp
         tests/unit/test_voices_api.cpp
+        tests/unit/test_voxcpm_client.cpp
     )
     target_link_libraries(VoxStudioUnitTests PRIVATE Catch2::Catch2WithMain VoxStudioCore)
     target_compile_definitions(

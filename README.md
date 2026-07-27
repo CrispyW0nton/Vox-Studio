@@ -3,14 +3,14 @@
 Native Windows AI voice acting studio for indie game developers.
 
 Vox Studio is a C++20/Qt desktop app for producing game dialogue: project
-management, script import, voice library tools, ElevenLabs integration, take
-management, dialogue sequencing, and experimental local RVC voice-conversion
-plumbing.
+management, script import, voice library tools, ElevenLabs integration,
+VoxCPM2 character performance rendering, take management, dialogue sequencing,
+and local RVC voice conversion.
 
 > Current status: early test build. The app can be built and launched locally,
-> the unit/Qt test suite is active, and the local RVC path uses the official RVC
-> runtime installed on this machine. A self-contained signed installer,
-> auto-updater, and release packaging are still future work.
+> the unit/Qt test suite is active, and Performance mode runs locally through
+> VoxCPM2. A self-contained signed installer, auto-updater, and release
+> packaging are still future work.
 
 ## What It Does
 
@@ -18,7 +18,9 @@ plumbing.
 - Saves ElevenLabs API keys with Windows DPAPI, not plaintext config files.
 - Imports scripts from plain text, CSV, Fountain, Ren'Py, and Yarn-style JSON.
 - Manages voices, character assignments, takes, and dialogue timelines.
-- Provides TTS, STS, live microphone, and local RVC UI paths.
+- Uses microphone delivery as a VoxCPM2 performance prompt while a separate
+  local character profile supplies voice identity.
+- Provides TTS, phrase-live VoxCPM2, live microphone, and local RVC UI paths.
 - Includes native ONNX RVC plumbing for future in-process inference validation.
 
 ## Requirements
@@ -80,6 +82,9 @@ Important subfolders:
 - `rvc_sidecar\` - installed local RVC sidecar payload.
 - `onnxruntime\` - optional `onnxruntime.dll` runtime location.
 - `rvc_onnx_models\` - native ONNX RVC model bundles.
+- `engines\voxcpm2\` - isolated VoxCPM2 Python/GPU runtime and model cache.
+- `voxcpm_profiles\` - local character identity references and profile metadata.
+- `voxcpm_sidecar\` - phrase-live transcription and rendering service.
 
 Do not commit API keys, voice models, ONNX models, signing keys, or generated
 project data. `.gitignore` is set up to keep those out of source control.
@@ -96,21 +101,50 @@ identity and project assignment locally; ElevenLabs does not make its trained
 voice model weights exportable.
 
 In **Live Mic**, use **Mic Check** to verify the selected input and headphone
-output with your unchanged microphone. **Performance** captures each spoken
-phrase and sends it to ElevenLabs Voice Changer so timing, delivery, and emotion
-come from the actor's microphone performance. **Live Input** keeps the unchanged
-microphone audible while recording, while **Hear Result** plays each completed
-changed-voice phrase through the selected headphones. Type the line before
-recording and Vox Studio creates the character line and saves the converted take
-automatically. The **Recent Takes** panel can play, star, reveal, and delete
-recordings without leaving Live Mic. **Broadcast** can also send the changed
-phrase to a virtual audio line; select that virtual microphone endpoint in OBS,
-a game, or chat software.
+output with your unchanged microphone. **Performance** captures one phrase at a
+time. Local Whisper transcription supplies the words, the recording supplies
+timing and emotional delivery, and the selected VoxCPM2 profile supplies the
+character identity. **Hear Result** is armed automatically and plays the
+character phrase through the selected headphones. **Live Input** is independent:
+turn it off to hear only the character result, or on to hear the unchanged mic
+while performing.
 
-ElevenLabs speech-to-speech is a request/response service, so this mode has a
-phrase-length plus network delay. It is intended for performance capture and
-review, not zero-latency conversation. Use a properly trained local RVC model
-for immediate live conversion.
+Typing the line is optional. When present, it bypasses transcription for exact
+script wording. Saved results appear immediately under **Recent Takes**, where
+they can be played, starred, revealed in Explorer, or deleted. **Broadcast**
+sends the same character result to a selected virtual audio line for OBS, games,
+or chat software.
+
+VoxCPM2 Performance mode is phrase-live rather than zero-latency waveform
+conversion: the result begins after a natural pause and local inference delay.
+The model remains loaded between phrases. Use **Local** RVC when immediate
+low-latency feedback matters more than character fidelity.
+
+## VoxCPM2 Profiles
+
+The local service listens on `http://127.0.0.1:18990`. Each profile lives under:
+
+```text
+%LOCALAPPDATA%\VoxStudio\voxcpm_profiles\<voice_id>\
+```
+
+`reference.wav` contains a curated identity reference and `profile.json`
+records its source coverage and inference settings. Rebuild the local character
+profiles from available source libraries with:
+
+```powershell
+& "$env:LOCALAPPDATA\VoxStudio\engines\voxcpm2\.venv\Scripts\python.exe" `
+  tools\prepare_voxcpm_profiles.py
+```
+
+The source tree contains the service and profile tooling, not model weights or
+licensed voice audio. Those remain local user data.
+
+On a new Windows machine, install the isolated GPU runtime and model cache once:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\install_voxcpm_runtime.ps1
+```
 
 ## RVC Status
 
@@ -153,6 +187,7 @@ src/platform/win/      Windows app paths and single-instance guard
 src/rvc/               sidecar, model registry, native ONNX RVC plumbing
 src/secrets/           DPAPI secret storage
 src/ui/                Qt widgets and dialogs
+src/voxcpm/            VoxCPM2 service process and HTTP client
 tests/                 Catch2, Qt, fixture, and tool tests
 third_party/           vendored headers/metadata only, not heavyweight payloads
 tools/                 smoke tools, RVC utilities, compatibility sidecar source
