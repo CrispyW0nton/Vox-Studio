@@ -30,6 +30,8 @@ public:
         response.characterName = "Carth";
         response.sampleRate = 48000;
         response.latencyMs = 731;
+        response.delivery = "calm";
+        response.pronunciations = "Telos";
         return response;
     }
 
@@ -71,6 +73,8 @@ TEST_CASE("VoxCPM2 client sends delivery audio and returns character PCM", "[vox
     CHECK(rendered.value().transcript == "Trust me.");
     CHECK(rendered.value().characterName == "Carth");
     CHECK(rendered.value().latencyMs == 731);
+    CHECK(rendered.value().delivery == "calm");
+    CHECK(rendered.value().pronunciations == "Telos");
     CHECK(view->renderPath == "/render_performance");
     CHECK(view->request.voiceId == "carth");
 }

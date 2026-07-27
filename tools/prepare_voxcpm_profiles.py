@@ -12,7 +12,7 @@ import librosa
 import numpy as np
 import soundfile as sf
 from faster_whisper import WhisperModel
-from scipy.signal import resample_poly
+from scipy.signal import medfilt, resample_poly
 
 
 SAMPLE_RATE = 48000
@@ -35,8 +35,6 @@ class ProfileSpec:
     control_instruction: str = ""
     use_controlled_cloning: bool = False
     controlled_cfg_value: float = 0.0
-    energetic_instruction: str = ""
-    conversational_instruction: str = ""
 
 
 def default_specs() -> tuple[ProfileSpec, ...]:
@@ -63,8 +61,10 @@ def default_specs() -> tuple[ProfileSpec, ...]:
             ("nm01aacart*", "n_m1bncart*"),
             style_anchor_count=316,
             control_instruction=(
-                "An earnest military pilot with firm projection, brisk urgency, "
-                "rising energy, emotional directness, and decisive command endings."
+                "Keep Carth's clear, earnest military timbre and grounded "
+                "conversational resonance. Follow the performer's pace, pauses, "
+                "emphasis, and emotional intensity exactly. Do not add urgency, "
+                "anger, or excitement."
             ),
             use_controlled_cloning=True,
             controlled_cfg_value=2.0,
@@ -92,8 +92,10 @@ def default_specs() -> tuple[ProfileSpec, ...]:
             cfg_value=1.5,
             style_anchor_count=68,
             control_instruction=(
-                "A guarded young man with a dry sarcastic edge, casual conversational "
-                "drawl, clipped pauses, restrained emotion, and wry downward endings."
+                "Keep Atton's guarded youthful timbre, casual drawl, and clipped "
+                "phrasing. Follow the performer's pace, pauses, emphasis, and "
+                "emotional intensity exactly. Do not add sarcasm, amusement, or "
+                "tension unless it is present."
             ),
             use_controlled_cloning=True,
             controlled_cfg_value=3.0,
@@ -110,20 +112,13 @@ def default_specs() -> tuple[ProfileSpec, ...]:
             cfg_value=1.5,
             style_anchor_count=328,
             control_instruction=(
-                "A soft-spoken veteran technician with a low breathy near-whisper, "
-                "measured pacing, gentle deliberate emphasis, subdued introspection, "
-                "restrained fatigue, and calm downward endings. Keep intensity "
-                "internal and avoid booming projection."
+                "Keep Bao-Dur's low breathy near-whisper and gentle, deliberate "
+                "articulation. Follow the performer's pace, pauses, emphasis, and "
+                "emotional intensity exactly. Do not flatten emphasis or add "
+                "fatigue, solemnity, or volume."
             ),
             use_controlled_cloning=True,
             controlled_cfg_value=1.5,
-            energetic_instruction=(
-                "Express urgency through tighter pacing and firmer emphasis while "
-                "remaining quiet and inward."
-            ),
-            conversational_instruction=(
-                "Keep the emotion subdued, reflective, and conversational."
-            ),
         ),
         ProfileSpec(
             ("ubAJyJphmwzPmKNsS9W6",),
@@ -295,7 +290,7 @@ def style_features(clip: np.ndarray, transcript: str) -> dict[str, float]:
     duration = max(len(clip) / SAMPLE_RATE, 0.1)
     rms = librosa.feature.rms(y=clip, frame_length=2048, hop_length=480)[0]
     rms_db = librosa.amplitude_to_db(np.maximum(rms, 1e-7), ref=np.max)
-    active_rms = rms_db[rms_db > -45.0]
+    active_rms = rms_db[rms_db > -30.0]
     dynamic_db = (
         float(np.percentile(active_rms, 90) - np.percentile(active_rms, 10))
         if active_rms.size
@@ -319,26 +314,35 @@ def style_features(clip: np.ndarray, transcript: str) -> dict[str, float]:
     )
     finite_f0 = f0[:frame_count][voiced]
     voiced_positions = frame_positions[voiced]
-    pitch_variation = (
-        float(np.std(finite_f0) / max(np.mean(finite_f0), 1.0))
-        if finite_f0.size
-        else 0.0
-    )
+    pitch_variation_semitones = 0.0
+    pitch_range = 0.0
+    pitch_slope = 0.0
+    terminal_pitch_delta = 0.0
     if finite_f0.size >= 3:
-        semitones = 12.0 * np.log2(finite_f0 / np.median(finite_f0))
-        pitch_range = float(np.percentile(semitones, 90) - np.percentile(semitones, 10))
-        pitch_slope = float(np.polyfit(voiced_positions, semitones, 1)[0])
-        opening = semitones[voiced_positions <= 0.35]
-        ending = semitones[voiced_positions >= 0.65]
-        terminal_pitch_delta = (
-            float(np.median(ending) - np.median(opening))
-            if opening.size and ending.size
-            else 0.0
+        raw_semitones = 12.0 * np.log2(finite_f0)
+        kernel_size = 5 if raw_semitones.size >= 5 else 3
+        local_median = medfilt(raw_semitones, kernel_size=kernel_size)
+        semitones = raw_semitones - (
+            12.0 * np.round((raw_semitones - local_median) / 12.0)
         )
-    else:
-        pitch_range = 0.0
-        pitch_slope = 0.0
-        terminal_pitch_delta = 0.0
+        semitones = medfilt(semitones, kernel_size=kernel_size)
+        center = float(np.median(semitones))
+        plausible = np.abs(semitones - center) < 10.0
+        semitones = semitones[plausible] - center
+        voiced_positions = voiced_positions[plausible]
+        if semitones.size >= 3:
+            pitch_variation_semitones = float(np.std(semitones))
+            pitch_range = float(
+                np.percentile(semitones, 90) - np.percentile(semitones, 10)
+            )
+            pitch_slope = float(np.polyfit(voiced_positions, semitones, 1)[0])
+            opening = semitones[voiced_positions <= 0.35]
+            ending = semitones[voiced_positions >= 0.65]
+            terminal_pitch_delta = (
+                float(np.median(ending) - np.median(opening))
+                if opening.size and ending.size
+                else 0.0
+            )
     pause_ratio = float(np.mean(rms_db < -32.0)) if rms_db.size else 0.0
     first_energy = analysis_rms[frame_positions <= 0.35]
     last_energy = analysis_rms[frame_positions >= 0.65]
@@ -351,7 +355,7 @@ def style_features(clip: np.ndarray, transcript: str) -> dict[str, float]:
     return {
         "duration_seconds": round(duration, 4),
         "dynamic_db": round(dynamic_db, 4),
-        "pitch_variation": round(pitch_variation, 6),
+        "pitch_variation_semitones": round(pitch_variation_semitones, 4),
         "pitch_range_semitones": round(pitch_range, 4),
         "pitch_slope_semitones": round(pitch_slope, 4),
         "terminal_pitch_delta": round(terminal_pitch_delta, 4),
@@ -359,6 +363,24 @@ def style_features(clip: np.ndarray, transcript: str) -> dict[str, float]:
         "energy_slope_db": round(energy_slope, 4),
         "characters_per_second": round(spoken_characters / duration, 4),
     }
+
+
+def transcript_cache(root: Path, spec: ProfileSpec) -> dict[str, str]:
+    cached: dict[str, str] = {}
+    for voice_id in spec.voice_ids:
+        profile_path = root / voice_id / "profile.json"
+        if not profile_path.exists():
+            continue
+        try:
+            profile = json.loads(profile_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        for anchor in profile.get("style_anchors", []):
+            source = str(anchor.get("source", "")).strip()
+            prompt_text = str(anchor.get("prompt_text", "")).strip()
+            if source and prompt_text:
+                cached[source.casefold()] = prompt_text
+    return cached
 
 
 def write_profile(root: Path, spec: ProfileSpec) -> None:
@@ -372,13 +394,14 @@ def write_profile(root: Path, spec: ProfileSpec) -> None:
         spec.primary_prompt,
         spec.style_anchor_count,
     )
+    cached_transcripts = transcript_cache(root, spec)
     style_anchors: list[dict] = []
     style_clips: list[np.ndarray] = []
     for index, (_, clip, source) in enumerate(selected):
         prompt_text = (
             spec.primary_prompt_text
             if index == 0 and spec.primary_prompt is not None and source == spec.primary_prompt
-            else transcribe_clip(clip)
+            else cached_transcripts.get(str(source).casefold()) or transcribe_clip(clip)
         )
         if not prompt_text:
             continue
@@ -411,7 +434,7 @@ def write_profile(root: Path, spec: ProfileSpec) -> None:
                 subtype="PCM_16",
             )
         profile = {
-            "format_version": 3,
+            "format_version": 4,
             "voice_id": voice_id,
             "name": spec.name,
             "engine": "VoxCPM2",
@@ -425,8 +448,6 @@ def write_profile(root: Path, spec: ProfileSpec) -> None:
             "control_instruction": spec.control_instruction,
             "use_controlled_cloning": spec.use_controlled_cloning,
             "controlled_cfg_value": spec.controlled_cfg_value,
-            "energetic_instruction": spec.energetic_instruction,
-            "conversational_instruction": spec.conversational_instruction,
         }
         (profile_root / "profile.json").write_text(
             json.dumps(profile, indent=2),

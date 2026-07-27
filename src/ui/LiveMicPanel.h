@@ -51,6 +51,7 @@ struct CloudConversionResult final {
     double inputSeconds{0.0};
     int sampleRate{24000};
     int playbackDurationMs{0};
+    QString delivery;
 };
 
 struct LocalRvcConversionResult final {

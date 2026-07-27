@@ -16,6 +16,8 @@ struct VoxCpmHttpResponse final {
     std::string characterName;
     int sampleRate{48000};
     int latencyMs{0};
+    std::string delivery;
+    std::string pronunciations;
 };
 
 struct VoxCpmRenderRequest final {
@@ -33,6 +35,8 @@ struct VoxCpmRenderResult final {
     int sampleRate{48000};
     int channels{1};
     int latencyMs{0};
+    std::string delivery;
+    std::string pronunciations;
 };
 
 struct VoxCpmHealth final {

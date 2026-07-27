@@ -102,15 +102,16 @@ voice model weights exportable.
 
 In **Live Mic**, use **Mic Check** to verify the selected input and headphone
 output with your unchanged microphone. **Performance** captures one phrase at a
-time. Local Whisper transcription supplies the words. The recording's pace,
-dynamics, pauses, pitch contour, and sentence shape select the closest clean
-delivery reference from the character profile. Profiles can also use VoxCPM2
-controlled cloning to steer the selected voice toward character-specific
-mannerisms and the performance's energy. This is delivery-style matching, not
-sample-exact prosody transfer. **Hear Result** is armed automatically and plays
-the character phrase through the selected headphones. **Live Input** is
-independent: turn it off to hear only the character result, or on to hear the
-unchanged mic while performing.
+time. Local Whisper transcription supplies the words. A smoothed delivery
+detector classifies each phrase as calm, measured, neutral, emphatic, urgent,
+questioning, or sarcastic from its language, pace, dynamics, pauses, and pitch
+contour. It then selects a compatible in-character reference and explicitly
+prevents the character profile from adding emotion that was not present in the
+performance. Live Mic shows the detected delivery after each phrase. This is
+delivery-style matching, not sample-exact prosody transfer. **Hear Result** is
+armed automatically and plays the character phrase through the selected
+headphones. **Live Input** is independent: turn it off to hear only the
+character result, or on to hear the unchanged mic while performing.
 
 Typing the line is optional. When present, it bypasses transcription for exact
 script wording. Saved results appear immediately under **Recent Takes**, where
@@ -145,6 +146,11 @@ Pass `--voice "Bao-Dur"` (or another character name) to rebuild one profile.
 Bao-Dur uses the decoded `GBL\BAODUR` conversation library so the live matcher
 can choose among his quiet, reflective, urgent, and technical delivery styles
 instead of relying on a single stitched reference recording.
+
+`third_party\voxcpm_sidecar\pronunciations.json` contains local synthesis-only
+respellings for character and place names such as Carth, Atton, Bao-Dur, Kreia,
+Telos, and Nar Shaddaa. The saved script and take transcript keep their original
+spelling.
 
 The source tree contains the service and profile tooling, not model weights or
 licensed voice audio. Those remain local user data.

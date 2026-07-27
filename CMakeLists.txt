@@ -423,12 +423,17 @@ if(BUILD_TESTING)
                     "${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/test_rvc_sidecar.py"
         )
         add_test(
+            NAME VoxStudioVoxCpmDeliveryTests
+            COMMAND ${Python3_EXECUTABLE}
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/test_voxcpm_delivery.py"
+        )
+        add_test(
             NAME VoxStudioKotorAudioDatasetTests
             COMMAND ${Python3_EXECUTABLE}
                     "${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/test_kotor_audio_dataset.py"
         )
     else()
-        message(WARNING "Python3 interpreter not found; RVC ONNX tool tests are disabled.")
+        message(WARNING "Python3 interpreter not found; Python tool tests are disabled.")
     endif()
 
     add_test(NAME VoxStudioRvcNativeSmokeHelp COMMAND VoxStudioRvcNativeSmoke --help)

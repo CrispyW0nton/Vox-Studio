@@ -1,0 +1,90 @@
+{
+  "entries": [
+    {
+      "term": "Nar Shaddaa",
+      "spoken": "Nar shuh-dah",
+      "aliases": ["Nar Shadaa", "Nar Shaddah"]
+    },
+    {
+      "term": "Bao-Dur",
+      "spoken": "Bow-dur",
+      "aliases": ["Bao Dur"]
+    },
+    {
+      "term": "Dantooine",
+      "spoken": "Dan-too-een"
+    },
+    {
+      "term": "Kashyyyk",
+      "spoken": "kuh-sheek"
+    },
+    {
+      "term": "Korriban",
+      "spoken": "Kor-ih-bahn"
+    },
+    {
+      "term": "Malachor",
+      "spoken": "Mal-uh-kor"
+    },
+    {
+      "term": "Onderon",
+      "spoken": "On-der-on"
+    },
+    {
+      "term": "Peragus",
+      "spoken": "Pair-uh-gus"
+    },
+    {
+      "term": "Tatooine",
+      "spoken": "Tat-too-een"
+    },
+    {
+      "term": "Telos",
+      "spoken": "Tee-lohs"
+    },
+    {
+      "term": "Carth",
+      "spoken": "Karth"
+    },
+    {
+      "term": "Atton",
+      "spoken": "At-un"
+    },
+    {
+      "term": "Kreia",
+      "spoken": "Kree-uh"
+    },
+    {
+      "term": "Bastila",
+      "spoken": "Bass-tih-luh"
+    },
+    {
+      "term": "Canderous",
+      "spoken": "Kan-der-us"
+    },
+    {
+      "term": "Juhani",
+      "spoken": "Joo-hah-nee"
+    },
+    {
+      "term": "Mandalore",
+      "spoken": "Man-duh-lor"
+    },
+    {
+      "term": "Manaan",
+      "spoken": "Muh-nahn"
+    },
+    {
+      "term": "Mira",
+      "spoken": "Meer-uh"
+    },
+    {
+      "term": "Revan",
+      "spoken": "Rev-an"
+    },
+    {
+      "term": "Taris",
+      "spoken": "Tair-iss"
+    }
+  ]
+}

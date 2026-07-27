@@ -222,14 +222,28 @@ void appendPlaybackWarning(QString& warning, const QString& route, const core::E
     const auto inputSeconds =
         static_cast<double>(inputPcmBytes.size()) /
         static_cast<double>(kCloudInputSampleRate * sizeof(std::int16_t));
+    auto delivery = QString::fromStdString(rendered.value().delivery).trimmed();
+    if (!delivery.isEmpty()) {
+        delivery.front() = delivery.front().toUpper();
+    }
+    auto message =
+        delivery.isEmpty()
+            ? QStringLiteral("VoxCPM2 character phrase ready in %1 ms.")
+                  .arg(rendered.value().latencyMs)
+            : QStringLiteral("Matched %1 delivery in %2 ms.")
+                  .arg(delivery)
+                  .arg(rendered.value().latencyMs);
+    if (!rendered.value().pronunciations.empty()) {
+        message += QStringLiteral(" Pronunciation guide applied.");
+    }
     return CloudConversionResult{true,
-                                 QStringLiteral("VoxCPM2 character phrase ready in %1 ms.")
-                                     .arg(rendered.value().latencyMs),
+                                 message,
                                  playbackWarning,
                                  byteArrayFromBytes(rendered.value().pcm16Audio),
                                  inputSeconds,
                                  rendered.value().sampleRate,
-                                 playbackDurationMs};
+                                 playbackDurationMs,
+                                 delivery};
 }
 
 [[nodiscard]] LocalRvcConversionResult convertLocalRvcChunk(

@@ -4,6 +4,6 @@
   "model": "openbmb/VoxCPM2",
   "launcher": "launch_voxcpm_sidecar.cmd",
   "server": "vox_voxcpm_server.py",
-  "profile_format": 3,
-  "notes": "Matches complete in-character anchors using pace, dynamics, pauses, pitch contour, and sentence shape, with optional character-specific controlled cloning."
+  "profile_format": 4,
+  "notes": "Detects performer delivery with smoothed pitch, pace, dynamics, pauses, and sentence shape; matches a compatible in-character anchor; and applies a local game-pronunciation lexicon."
 }
