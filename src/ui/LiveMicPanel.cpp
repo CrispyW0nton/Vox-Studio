@@ -11,7 +11,9 @@
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QCoreApplication>
 #include <QDir>
+#include <QEventLoop>
 #include <QFrame>
 #include <QGridLayout>
 #include <QGroupBox>
@@ -1428,6 +1430,21 @@ void LiveMicPanel::toggleLocalRvcConversion() {
         setStatusText(QString::fromStdString(started.error().message));
         return;
     }
+    setStatusText(QStringLiteral("Loading local voice \"%1\"...")
+                      .arg(currentRvcModelName()));
+    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+    const rvc::RvcClient warmupClient{started.value().endpoint};
+    auto warmed = warmupClient.loadModel(modelId);
+    for (int attempt = 0; !warmed && attempt < 4; ++attempt) {
+        QThread::msleep(250);
+        QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+        warmed = warmupClient.loadModel(modelId);
+    }
+    if (!warmed) {
+        m_rvcSidecar.stop();
+        setStatusText(QString::fromStdString(warmed.error().message));
+        return;
+    }
     if (!ensureCaptureRunning()) {
         m_rvcSidecar.stop();
         return;
@@ -1451,8 +1468,7 @@ void LiveMicPanel::toggleLocalRvcConversion() {
     QString localStatus =
         QStringLiteral("Local RVC active at %1.")
             .arg(QString::fromStdString(started.value().endpoint));
-    const rvc::RvcClient healthClient{started.value().endpoint};
-    auto health = healthClient.health();
+    const auto& health = warmed;
     if (health && health.value().engine == "compat-pass-through") {
         localStatus += QStringLiteral(
             " This test sidecar passes audio through; use Cloud for cloned voices.");

@@ -8,6 +8,8 @@
 #include <array>
 #include <chrono>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <system_error>
 #include <utility>
@@ -34,6 +36,19 @@ constexpr auto kManifestFileName = "sidecar_manifest.json";
 [[nodiscard]] bool isCopyableSidecarFile(const std::filesystem::path& path) {
     const auto fileName = path.filename().wstring();
     return fileName != L".gitkeep";
+}
+
+[[nodiscard]] bool filesMatch(const std::filesystem::path& first,
+                              const std::filesystem::path& second) {
+    std::ifstream firstStream{first, std::ios::binary};
+    std::ifstream secondStream{second, std::ios::binary};
+    if (!firstStream || !secondStream) {
+        return false;
+    }
+    return std::equal(std::istreambuf_iterator<char>{firstStream},
+                      std::istreambuf_iterator<char>{},
+                      std::istreambuf_iterator<char>{secondStream},
+                      std::istreambuf_iterator<char>{});
 }
 
 [[nodiscard]] std::vector<std::filesystem::path> bundledSidecarCandidates() {
@@ -174,16 +189,23 @@ private:
 
     [[nodiscard]] core::Expected<bool> ensureInstalled() const {
         const auto launcherPath = launcherPathForRoot(m_config.sidecarRoot);
-        if (std::filesystem::exists(launcherPath)) {
-            return true;
-        }
+        const auto installedManifest = m_config.sidecarRoot / kManifestFileName;
+        const bool installed = std::filesystem::exists(launcherPath) &&
+                               std::filesystem::exists(installedManifest);
 
         for (const auto& candidate : bundledSidecarCandidates()) {
-            if (std::filesystem::exists(candidate / kLauncherFileName)) {
+            const auto candidateLauncher = candidate / kLauncherFileName;
+            const auto candidateManifest = candidate / kManifestFileName;
+            if (std::filesystem::exists(candidateLauncher) &&
+                std::filesystem::exists(candidateManifest) &&
+                (!installed || !filesMatch(candidateManifest, installedManifest))) {
                 return installFromBundle(candidate, m_config.sidecarRoot);
             }
         }
 
+        if (installed) {
+            return true;
+        }
         return sidecarError("RVC sidecar bundle was not found.");
     }
 

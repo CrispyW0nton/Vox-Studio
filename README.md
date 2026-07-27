@@ -8,9 +8,9 @@ management, dialogue sequencing, and experimental local RVC voice-conversion
 plumbing.
 
 > Current status: early test build. The app can be built and launched locally,
-> and the unit/Qt test suite is active. The full signed installer, production
-> RVC sidecar payload, auto-updater, and release packaging are still future
-> work.
+> the unit/Qt test suite is active, and the local RVC path uses the official RVC
+> runtime installed on this machine. A self-contained signed installer,
+> auto-updater, and release packaging are still future work.
 
 ## What It Does
 
@@ -116,18 +116,23 @@ for immediate live conversion.
 
 There are two local RVC modes in the UI:
 
-- **Sidecar** starts a local process on `http://127.0.0.1:18888` and talks to
-  `/health` and `/convert_chunk`.
+- **Sidecar** starts the Vox Studio real-time bridge on
+  `http://127.0.0.1:18888`, talks to `/health` and `/convert_chunk`, and runs
+  imported `.pth` plus `.index` models through the official RVC real-time
+  pipeline. Audio is processed in stateful 250 ms blocks with RMVPE pitch
+  extraction and SOLA crossfading.
 - **Native ONNX** loads `onnxruntime.dll` dynamically and expects model bundles
   under `%LOCALAPPDATA%\VoxStudio\rvc_onnx_models\<model_id>\`.
 
-The repository intentionally does not include the large W-Okada/VCClient runtime
-payload, ONNX Runtime DLLs, `.pth` model weights, `.index` files, or `.onnx`
-graphs. Installer packaging will own those runtime artifacts.
+The sidecar expects the official RVC runtime under
+`%LOCALAPPDATA%\VoxStudio\training\RVC-WebUI\`. Model weights and indexes remain
+user-owned runtime artifacts under `%LOCALAPPDATA%\VoxStudio\rvc_models\`; they
+are not committed to this repository. ONNX Runtime DLLs and `.onnx` graphs are
+also external runtime artifacts.
 
-For app-pipeline testing, the repo includes a small compatibility sidecar source
-at `tools/rvc_compat_sidecar/`. It implements the Vox Studio sidecar HTTP shape
-and passes audio through, but it does not perform real voice conversion.
+The older compatibility sidecar source remains under
+`tools/rvc_compat_sidecar/` for protocol-only tests. It passes audio through and
+must not be used for character conversion.
 
 More detail is in [docs/RVC_NATIVE.md](docs/RVC_NATIVE.md).
 

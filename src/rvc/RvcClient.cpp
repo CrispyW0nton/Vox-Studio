@@ -79,6 +79,25 @@ core::Expected<RvcHttpResponse> CprRvcHttpTransport::getJson(const std::string& 
     }
 }
 
+core::Expected<RvcHttpResponse> CprRvcHttpTransport::postJson(
+    const std::string& path,
+    const std::string& body) const {
+    try {
+        const auto response = cpr::Post(cpr::Url{joinedUrl(m_baseUrl, path)},
+                                        cpr::Header{{"Accept", "application/json"},
+                                                    {"Content-Type", "application/json"}},
+                                        cpr::Body{body},
+                                        cpr::Timeout{kConvertTimeout});
+        if (response.error.code != cpr::ErrorCode::OK) {
+            return core::makeError(core::ErrorCode::FileSystemFailure,
+                                   response.error.message);
+        }
+        return RvcHttpResponse{static_cast<int>(response.status_code), response.text};
+    } catch (const std::exception& exception) {
+        return core::makeError(core::ErrorCode::FileSystemFailure, exception.what());
+    }
+}
+
 core::Expected<RvcHttpResponse> CprRvcHttpTransport::postPcmStream(
     const std::string& path,
     const RvcConvertRequest& request,
@@ -155,6 +174,45 @@ core::Expected<RvcHealth> RvcClient::health() const {
     }
 }
 
+core::Expected<RvcHealth> RvcClient::loadModel(
+    const std::string& modelId,
+    const int pitchShiftSemitones) const {
+    if (modelId.empty()) {
+        return rvcError("RVC model id must not be empty.");
+    }
+    if (m_transport == nullptr) {
+        return core::makeError(core::ErrorCode::FileSystemFailure,
+                               "RVC HTTP transport is not configured.");
+    }
+
+    const nlohmann::json request{{"model_id", modelId},
+                                 {"pitch_shift", pitchShiftSemitones}};
+    auto response = m_transport->postJson(rvcLoadModelPath(), request.dump());
+    if (!response) {
+        return response.error();
+    }
+    if (response.value().statusCode < 200 || response.value().statusCode >= 300) {
+        return core::makeError(core::ErrorCode::FileSystemFailure, response.value().body);
+    }
+
+    try {
+        const auto json = nlohmann::json::parse(response.value().body.empty()
+                                                   ? std::string{"{}"}
+                                                   : response.value().body);
+        RvcHealth health;
+        health.ok = json.value("ok", true);
+        health.engine = stringValue(json, "engine", "server");
+        health.cudaAvailable = json.value("cuda_available", false);
+        health.cudaVersion = stringValue(json, "cuda_version", "cuda");
+        health.loadedModelId = stringValue(json, "loaded_model_id", "model_id");
+        health.lastLatencyMs = json.value("last_latency_ms", -1);
+        health.message = json.value("message", std::string{"RVC model loaded."});
+        return health;
+    } catch (const std::exception& exception) {
+        return core::makeError(core::ErrorCode::FileSystemFailure, exception.what());
+    }
+}
+
 core::Expected<RvcConvertResult> RvcClient::convertChunk(
     const RvcConvertRequest& request,
     const RvcAudioChunkCallback& onChunk) const {
@@ -195,6 +253,10 @@ core::Expected<RvcConvertResult> RvcClient::convertChunk(
 
 std::string rvcHealthPath() {
     return "/health";
+}
+
+std::string rvcLoadModelPath() {
+    return "/load_model";
 }
 
 std::string rvcConvertChunkPath() {

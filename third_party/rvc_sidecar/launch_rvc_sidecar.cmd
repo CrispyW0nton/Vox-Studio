@@ -23,17 +23,21 @@ shift
 goto parse
 
 :run
+set "VOX_RVC_RUNTIME=%LOCALAPPDATA%\VoxStudio\training\RVC-WebUI"
+set "VOX_RVC_PYTHON=%VOX_RVC_RUNTIME%\.venv\Scripts\python.exe"
+
+if exist "%VOX_RVC_PYTHON%" if exist "%VOX_RVC_ROOT%vox_rvc_server.py" (
+  "%VOX_RVC_PYTHON%" "%VOX_RVC_ROOT%vox_rvc_server.py" ^
+    --host "%VOX_RVC_HOST%" --port "%VOX_RVC_PORT%" ^
+    --rvc-root "%VOX_RVC_RUNTIME%"
+  exit /b %ERRORLEVEL%
+)
+
 if exist "%VOX_RVC_ROOT%VCClient.exe" (
   "%VOX_RVC_ROOT%VCClient.exe" --host "%VOX_RVC_HOST%" --port "%VOX_RVC_PORT%"
   exit /b %ERRORLEVEL%
 )
 
-if exist "%VOX_RVC_ROOT%python\python.exe" if exist "%VOX_RVC_ROOT%server\MMVCServerSIO.py" (
-  "%VOX_RVC_ROOT%python\python.exe" "%VOX_RVC_ROOT%server\MMVCServerSIO.py" ^
-    --host "%VOX_RVC_HOST%" --port "%VOX_RVC_PORT%"
-  exit /b %ERRORLEVEL%
-)
-
 echo Vox Studio RVC sidecar runtime payload is missing.
-echo Expected VCClient.exe or python\python.exe plus server\MMVCServerSIO.py in %VOX_RVC_ROOT%.
+echo Expected the Vox Studio RVC training runtime at %VOX_RVC_RUNTIME%.
 exit /b 2

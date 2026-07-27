@@ -16,7 +16,9 @@ constexpr int kMaxFramesPerTick = 16;
 constexpr int kCloudSampleRate = 16000;
 constexpr int kCloudSourceSampleRate = audio::kRealtimeSampleRate;
 constexpr int kCloudDownsampleRatio = kCloudSourceSampleRate / kCloudSampleRate;
-constexpr int kLocalRvcFrameMs = 20;
+// The real-time RVC pipeline needs enough voiced context for pitch extraction
+// and SOLA crossfading. This matches the upstream RVC real-time default.
+constexpr int kLocalRvcFrameMs = 250;
 constexpr qsizetype kLocalRvcChunkBytes =
     (audio::kRealtimeSampleRate * kLocalRvcFrameMs / 1000) * 2;
 

@@ -1,7 +1,8 @@
 {
-  "name": "w-okada/voice-changer",
-  "upstream": "https://github.com/w-okada/voice-changer",
-  "pinned_series": "v.1.5.x",
+  "name": "Vox Studio Real-Time RVC Sidecar",
+  "upstream": "https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI",
+  "pinned_commit": "4338f12",
   "launcher": "launch_rvc_sidecar.cmd",
-  "notes": "Pass 9a sidecar-first RVC runtime. Binary payload and model weights are not checked into git."
+  "server": "vox_rvc_server.py",
+  "notes": "Uses the locally installed official RVC runtime and user-imported model artifacts."
 }

@@ -24,6 +24,14 @@ public:
         return voxstudio::rvc::RvcHttpResponse{200, m_healthBody};
     }
 
+    [[nodiscard]] voxstudio::core::Expected<voxstudio::rvc::RvcHttpResponse> postJson(
+        const std::string& path,
+        const std::string& body) const override {
+        m_loadPath = path;
+        m_loadBody = body;
+        return voxstudio::rvc::RvcHttpResponse{200, m_healthBody};
+    }
+
     [[nodiscard]] voxstudio::core::Expected<voxstudio::rvc::RvcHttpResponse> postPcmStream(
         const std::string& path,
         const voxstudio::rvc::RvcConvertRequest& request,
@@ -47,6 +55,14 @@ public:
         return m_convertPath;
     }
 
+    [[nodiscard]] const std::string& loadPath() const noexcept {
+        return m_loadPath;
+    }
+
+    [[nodiscard]] const std::string& loadBody() const noexcept {
+        return m_loadBody;
+    }
+
     [[nodiscard]] const voxstudio::rvc::RvcConvertRequest& request() const noexcept {
         return m_request;
     }
@@ -55,6 +71,8 @@ private:
     std::string m_healthBody;
     std::vector<std::vector<std::uint8_t>> m_chunks;
     mutable std::string m_healthPath;
+    mutable std::string m_loadPath;
+    mutable std::string m_loadBody;
     mutable std::string m_convertPath;
     mutable voxstudio::rvc::RvcConvertRequest m_request;
 };
@@ -106,6 +124,24 @@ TEST_CASE("RVC client streams converted PCM chunks", "[rvc][client]") {
     CHECK(callbackBytes == converted.value().pcm16Audio);
     CHECK(transportView->convertPath() == "/convert_chunk");
     CHECK(transportView->request().modelId == "hero_model");
+}
+
+TEST_CASE("RVC client warms the selected model before streaming", "[rvc][client]") {
+    auto transport = std::make_unique<FakeRvcTransport>(
+        R"({"ok":true,"engine":"rvc-realtime","loaded_model_id":"carth_rvc_hq"})",
+        std::vector<std::vector<std::uint8_t>>{});
+    const auto* transportView = transport.get();
+    const voxstudio::rvc::RvcClient client{
+        "http://127.0.0.1:18888",
+        std::move(transport)};
+
+    auto loaded = client.loadModel("carth_rvc_hq");
+
+    REQUIRE(loaded.hasValue());
+    CHECK(loaded.value().loadedModelId == "carth_rvc_hq");
+    CHECK(transportView->loadPath() == "/load_model");
+    CHECK(transportView->loadBody().find("\"model_id\":\"carth_rvc_hq\"") !=
+          std::string::npos);
 }
 
 TEST_CASE("RVC client validates conversion requests", "[rvc][client]") {
