@@ -338,7 +338,7 @@ class PronunciationTests(unittest.TestCase):
             entries,
         )
 
-        self.assertIn("puh zock", result.text)
+        self.assertIn("puh Zack", result.text)
         self.assertIn("sah back", result.text)
         self.assertIn("ga-maw-ree-uhn", result.text)
         self.assertIn("Pazaak", result.matched_terms)
@@ -346,7 +346,7 @@ class PronunciationTests(unittest.TestCase):
         self.assertIn("Gamorrean", result.matched_terms)
 
         pazaak = next(entry for entry in entries if entry.term == "Pazaak")
-        self.assertEqual(pazaak.guide, "puh-ZAHK")
+        self.assertEqual(pazaak.guide, "puh-ZACK")
         self.assertIn("Pazak", pazaak.aliases)
 
         sabacc = next(entry for entry in entries if entry.term == "Sabacc")
