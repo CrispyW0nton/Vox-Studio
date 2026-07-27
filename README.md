@@ -18,8 +18,8 @@ and local RVC voice conversion.
 - Saves ElevenLabs API keys with Windows DPAPI, not plaintext config files.
 - Imports scripts from plain text, CSV, Fountain, Ren'Py, and Yarn-style JSON.
 - Manages voices, character assignments, takes, and dialogue timelines.
-- Uses microphone delivery as a VoxCPM2 performance prompt while a separate
-  local character profile supplies voice identity.
+- Uses microphone wording and delivery cues to choose a clean, transcribed
+  VoxCPM2 style reference that remains in the selected character's voice.
 - Provides TTS, phrase-live VoxCPM2, live microphone, and local RVC UI paths.
 - Includes native ONNX RVC plumbing for future in-process inference validation.
 
@@ -102,12 +102,14 @@ voice model weights exportable.
 
 In **Live Mic**, use **Mic Check** to verify the selected input and headphone
 output with your unchanged microphone. **Performance** captures one phrase at a
-time. Local Whisper transcription supplies the words, the recording supplies
-timing and emotional delivery, and the selected VoxCPM2 profile supplies the
-character identity. **Hear Result** is armed automatically and plays the
-character phrase through the selected headphones. **Live Input** is independent:
-turn it off to hear only the character result, or on to hear the unchanged mic
-while performing.
+time. Local Whisper transcription supplies the words. The recording's pace,
+pitch movement, and dynamics select the closest clean delivery reference from
+the character profile; that in-character reference supplies both voice identity
+and natural speaking style. This is delivery-style matching, not sample-exact
+prosody transfer. **Hear Result** is armed automatically and plays the character
+phrase through the selected headphones. **Live Input** is independent: turn it
+off to hear only the character result, or on to hear the unchanged mic while
+performing.
 
 Typing the line is optional. When present, it bypasses transcription for exact
 script wording. Saved results appear immediately under **Recent Takes**, where
@@ -128,9 +130,10 @@ The local service listens on `http://127.0.0.1:18990`. Each profile lives under:
 %LOCALAPPDATA%\VoxStudio\voxcpm_profiles\<voice_id>\
 ```
 
-`reference.wav` contains a curated identity reference and `profile.json`
-records its source coverage and inference settings. Rebuild the local character
-profiles from available source libraries with:
+`reference.wav` contains a curated identity reference. The `styles\` folder
+contains clean transcribed delivery anchors, and `profile.json` records their
+source coverage, acoustic features, and inference settings. Rebuild the local
+character profiles from available source libraries with:
 
 ```powershell
 & "$env:LOCALAPPDATA\VoxStudio\engines\voxcpm2\.venv\Scripts\python.exe" `

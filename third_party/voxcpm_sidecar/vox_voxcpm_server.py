@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import difflib
 import json
+import math
 import os
 import re
 import tempfile
@@ -9,9 +11,12 @@ import threading
 import time
 import urllib.parse
 import wave
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import librosa
 import numpy as np
+import soundfile as sf
 import torch
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse, Response
@@ -33,6 +38,7 @@ os.environ.setdefault("HF_HOME", str(ENGINE_ROOT / "cache"))
 app = FastAPI(title="Vox Studio VoxCPM2", version="1.0")
 model_lock = threading.Lock()
 transcriber_lock = threading.Lock()
+model_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="VoxCPM2")
 tts_model: VoxCPM | None = None
 transcriber: WhisperModel | None = None
 torch.set_float32_matmul_precision("high")
@@ -48,7 +54,7 @@ def profile_directories() -> list[Path]:
     ]
 
 
-def load_profile(voice_id: str) -> tuple[dict, Path]:
+def load_profile(voice_id: str) -> tuple[dict, Path, Path]:
     safe_voice_id = re.sub(r"[^A-Za-z0-9_-]", "", voice_id)
     if not safe_voice_id or safe_voice_id != voice_id:
         raise HTTPException(status_code=400, detail="Invalid character profile id.")
@@ -68,7 +74,7 @@ def load_profile(voice_id: str) -> tuple[dict, Path]:
     reference_path = (profile_dir / profile["reference_audio"]).resolve()
     if profile_dir.resolve() not in reference_path.parents or not reference_path.exists():
         raise HTTPException(status_code=500, detail="Character reference audio is missing.")
-    return profile, reference_path
+    return profile, profile_dir, reference_path
 
 
 def get_tts_model() -> VoxCPM:
@@ -109,16 +115,16 @@ def get_transcriber() -> WhisperModel:
 
 def warm_models() -> None:
     try:
+        get_transcriber()
         with model_lock:
             get_tts_model()
-        get_transcriber()
     except Exception as exception:
         print(f"VoxCPM2 warmup failed: {exception}", flush=True)
 
 
 @app.on_event("startup")
 def start_warmup() -> None:
-    threading.Thread(target=warm_models, name="VoxCPM2Warmup", daemon=True).start()
+    model_executor.submit(warm_models)
 
 
 def write_pcm_wave(path: Path, pcm: bytes, sample_rate: int, channels: int) -> None:
@@ -139,6 +145,117 @@ def transcribe_performance(path: Path) -> str:
     )
     text = " ".join(segment.text.strip() for segment in segments).strip()
     return re.sub(r"\s+", " ", text)
+
+
+def normalized_text(text: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", text.lower())
+
+
+def style_features(path: Path, transcript: str) -> dict[str, float]:
+    clip, sample_rate = sf.read(path, dtype="float32", always_2d=True)
+    mono = clip.mean(axis=1)
+    duration = max(len(mono) / sample_rate, 0.1)
+    rms = librosa.feature.rms(y=mono, frame_length=2048, hop_length=480)[0]
+    rms_db = librosa.amplitude_to_db(np.maximum(rms, 1e-7), ref=np.max)
+    active_rms = rms_db[rms_db > -45.0]
+    dynamic_db = (
+        float(np.percentile(active_rms, 90) - np.percentile(active_rms, 10))
+        if active_rms.size
+        else 0.0
+    )
+    f0 = librosa.yin(
+        mono,
+        fmin=librosa.note_to_hz("C2"),
+        fmax=librosa.note_to_hz("C6"),
+        sr=sample_rate,
+        frame_length=2048,
+        hop_length=480,
+    )
+    finite_f0 = f0[np.isfinite(f0)]
+    pitch_variation = (
+        float(np.std(finite_f0) / max(np.mean(finite_f0), 1.0))
+        if finite_f0.size
+        else 0.0
+    )
+    spoken_characters = len(re.sub(r"[^A-Za-z0-9]", "", transcript))
+    return {
+        "dynamic_db": dynamic_db,
+        "pitch_variation": pitch_variation,
+        "characters_per_second": spoken_characters / duration,
+    }
+
+
+def select_style_anchor(
+    profile: dict,
+    profile_dir: Path,
+    performance_path: Path,
+    transcript: str,
+) -> tuple[Path, str, str] | None:
+    anchors = profile.get("style_anchors", [])
+    if not anchors:
+        return None
+
+    target_text = normalized_text(transcript)
+    for anchor in anchors:
+        anchor_text = normalized_text(str(anchor.get("prompt_text", "")))
+        if target_text and anchor_text:
+            similarity = difflib.SequenceMatcher(None, target_text, anchor_text).ratio()
+            if similarity >= 0.92:
+                path = (profile_dir / anchor["audio"]).resolve()
+                if profile_dir.resolve() not in path.parents or not path.exists():
+                    raise HTTPException(
+                        status_code=500,
+                        detail="Character style anchor is missing.",
+                    )
+                return path, str(anchor["prompt_text"]), str(anchor.get("source", path.name))
+
+    performance = style_features(performance_path, transcript)
+
+    def distance(anchor: dict) -> float:
+        features = anchor.get("features", {})
+        rate = max(float(features.get("characters_per_second", 1.0)), 0.1)
+        performance_rate = max(performance["characters_per_second"], 0.1)
+        return (
+            abs(float(features.get("dynamic_db", 0.0)) - performance["dynamic_db"]) / 12.0
+            + abs(
+                float(features.get("pitch_variation", 0.0))
+                - performance["pitch_variation"]
+            )
+            * 5.0
+            + abs(math.log(rate / performance_rate))
+        )
+
+    selected = min(anchors, key=distance)
+    selected_path = (profile_dir / selected["audio"]).resolve()
+    if profile_dir.resolve() not in selected_path.parents or not selected_path.exists():
+        raise HTTPException(status_code=500, detail="Character style anchor is missing.")
+    return (
+        selected_path,
+        str(selected["prompt_text"]),
+        str(selected.get("source", selected_path.name)),
+    )
+
+
+def synthesize(
+    spoken_text: str,
+    prompt_path: Path,
+    prompt_text: str,
+    reference_path: Path,
+    profile: dict,
+) -> tuple[np.ndarray, int]:
+    with model_lock:
+        model = get_tts_model()
+        torch.manual_seed(42)
+        rendered = model.generate(
+            text=spoken_text,
+            prompt_wav_path=str(prompt_path),
+            prompt_text=prompt_text,
+            reference_wav_path=str(reference_path),
+            cfg_value=float(profile.get("cfg_value", 2.0)),
+            inference_timesteps=int(profile.get("inference_timesteps", 10)),
+            normalize=False,
+        )
+        return rendered, int(model.tts_model.sample_rate)
 
 
 @app.get("/health")
@@ -171,7 +288,7 @@ def render_performance(
     if len(pcm) < sample_rate // 5 * 2 or len(pcm) % 2:
         raise HTTPException(status_code=400, detail="Performance phrase is too short.")
 
-    profile, reference_path = load_profile(voice_id)
+    profile, profile_dir, reference_path = load_profile(voice_id)
     started = time.perf_counter()
     with tempfile.TemporaryDirectory(prefix="voxstudio_voxcpm_") as temp_dir:
         prompt_path = Path(temp_dir) / "performance.wav"
@@ -186,19 +303,29 @@ def render_performance(
                 detail="No speech was recognized. Speak a complete line and try again.",
             )
 
-        with model_lock:
-            model = get_tts_model()
-            torch.manual_seed(42)
-            rendered = model.generate(
-                text=spoken_text,
-                prompt_wav_path=str(prompt_path),
-                prompt_text=spoken_text,
-                reference_wav_path=str(reference_path),
-                cfg_value=float(profile.get("cfg_value", 2.0)),
-                inference_timesteps=int(profile.get("inference_timesteps", 10)),
-                normalize=False,
-            )
-            output_sample_rate = int(model.tts_model.sample_rate)
+        style_anchor = select_style_anchor(
+            profile,
+            profile_dir,
+            prompt_path,
+            spoken_text,
+        )
+        if style_anchor is None:
+            synthesis_prompt_path = prompt_path
+            synthesis_prompt_text = spoken_text
+            synthesis_reference_path = reference_path
+            style_source = "performer"
+        else:
+            synthesis_prompt_path, synthesis_prompt_text, style_source = style_anchor
+            synthesis_reference_path = synthesis_prompt_path
+
+        rendered, output_sample_rate = model_executor.submit(
+            synthesize,
+            spoken_text,
+            synthesis_prompt_path,
+            synthesis_prompt_text,
+            synthesis_reference_path,
+            profile,
+        ).result()
 
     output = np.clip(rendered, -1.0, 1.0)
     output_pcm = (output * 32767.0).astype("<i2").tobytes()
@@ -208,6 +335,7 @@ def render_performance(
         "X-Vox-Latency-Ms": str(latency_ms),
         "X-Vox-Character": urllib.parse.quote(str(profile.get("name", voice_id))),
         "X-Vox-Transcript": urllib.parse.quote(spoken_text),
+        "X-Vox-Style-Source": urllib.parse.quote(style_source),
         "Cache-Control": "no-store",
     }
     return Response(output_pcm, media_type="audio/L16", headers=headers)
