@@ -168,7 +168,7 @@ class PronunciationTests(unittest.TestCase):
 
         self.assertEqual(
             result.text,
-            "Bow-dur met Karth on Tee-lohs before leaving for Nar shuh-dah.",
+            "Bae-oh Dure met Karth on Tee-lohs before leaving for Narr Sha-Da.",
         )
         self.assertEqual(
             result.matched_terms,

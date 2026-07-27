@@ -63,10 +63,7 @@ def default_specs() -> tuple[ProfileSpec, ...]:
             ),
             ("nm01aacart*", "n_m1bncart*"),
             style_anchor_count=316,
-            control_instruction=(
-                "Keep Carth's clear, earnest military timbre. Match the "
-                "performer without adding intensity."
-            ),
+            control_instruction="Keep the trained voice stable.",
             use_controlled_cloning=True,
             controlled_cfg_value=2.0,
             lora_training_name="carth",
@@ -112,10 +109,7 @@ def default_specs() -> tuple[ProfileSpec, ...]:
             ),
             cfg_value=1.5,
             style_anchor_count=328,
-            control_instruction=(
-                "Keep Bao-Dur's low, breathy, gentle timbre. Match the performer "
-                "without flattening emphasis or adding fatigue."
-            ),
+            control_instruction="Keep the trained voice stable.",
             use_controlled_cloning=True,
             controlled_cfg_value=1.5,
             lora_training_name="bao-dur",

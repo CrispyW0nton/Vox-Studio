@@ -34,6 +34,7 @@ from vox_delivery import (
 )
 from vox_profiles import (
     activate_lora,
+    control_identity_instruction,
     generation_options,
     resolve_profile_asset,
     synthesis_inputs,
@@ -342,7 +343,7 @@ def build_control_instruction(
     performance: dict[str, float],
     delivery: DeliveryReading,
 ) -> str:
-    base = str(profile.get("control_instruction", "")).strip()
+    base = control_identity_instruction(profile)
     if not profile.get("use_controlled_cloning", False) or not base:
         return ""
 

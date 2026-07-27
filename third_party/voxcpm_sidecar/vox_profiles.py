@@ -12,6 +12,12 @@ class SynthesisInputs:
     style_source: str
 
 
+def control_identity_instruction(profile: dict) -> str:
+    if str(profile.get("lora_adapter", "")).strip():
+        return "Keep the trained voice stable."
+    return str(profile.get("control_instruction", "")).strip()
+
+
 def resolve_profile_asset(
     profile: dict,
     profile_dir: Path,

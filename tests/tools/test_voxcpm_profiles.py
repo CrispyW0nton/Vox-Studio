@@ -11,6 +11,7 @@ sys.path.insert(0, str(SIDECAR_ROOT))
 
 from vox_profiles import (  # noqa: E402
     activate_lora,
+    control_identity_instruction,
     generation_options,
     resolve_profile_asset,
     synthesis_inputs,
@@ -50,6 +51,25 @@ class SynthesisInputTests(unittest.TestCase):
         self.assertEqual(selected.prompt_path, anchor[0])
         self.assertEqual(selected.reference_path, anchor[0])
         self.assertEqual(selected.style_source, "game-line")
+
+
+class ControlInstructionTests(unittest.TestCase):
+    def test_trained_adapter_uses_neutral_identity_instruction(self) -> None:
+        instruction = control_identity_instruction(
+            {
+                "lora_adapter": "lora",
+                "control_instruction": "Keep Carth's earnest military timbre.",
+            }
+        )
+
+        self.assertEqual(instruction, "Keep the trained voice stable.")
+
+    def test_legacy_profile_keeps_its_character_instruction(self) -> None:
+        instruction = control_identity_instruction(
+            {"control_instruction": "Keep Atton's casual drawl."}
+        )
+
+        self.assertEqual(instruction, "Keep Atton's casual drawl.")
 
 
 class ProfileAssetTests(unittest.TestCase):
