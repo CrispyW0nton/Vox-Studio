@@ -34,6 +34,7 @@ from vox_delivery import (
     detect_delivery,
     load_pronunciations,
     specialize_delivery,
+    text_delivery_target,
 )
 from vox_profiles import (
     activate_lora,
@@ -51,6 +52,7 @@ from vox_text import (
     plan_story_performance,
     split_text_for_synthesis,
     story_beat_instruction,
+    synthesis_seed,
 )
 
 
@@ -91,6 +93,9 @@ transcription_hotwords = build_transcription_hotwords(
 @dataclass(frozen=True)
 class TextSynthesisSection:
     text: str
+    prompt_path: Path
+    prompt_text: str
+    reference_path: Path
     instruction: str
     pause_after: float
     seed: int
@@ -471,12 +476,84 @@ def text_control_instruction(profile: dict, delivery_tag: str) -> str:
     )
 
 
+def text_synthesis_section(
+    profile: dict,
+    profile_dir: Path,
+    reference_path: Path,
+    text: str,
+    delivery_tag: str,
+    instruction: str,
+    pause_after: float,
+    seed: int,
+) -> TextSynthesisSection:
+    target_features, target_delivery = text_delivery_target(delivery_tag)
+    style_anchor = select_style_anchor(
+        profile,
+        profile_dir,
+        target_features,
+        target_delivery,
+        text,
+    )
+    if style_anchor is None:
+        return TextSynthesisSection(
+            text=text,
+            prompt_path=reference_path,
+            prompt_text="",
+            reference_path=reference_path,
+            instruction=instruction,
+            pause_after=pause_after,
+            seed=seed,
+        )
+
+    anchor_path, anchor_text, _ = style_anchor
+    return TextSynthesisSection(
+        text=text,
+        prompt_path=anchor_path,
+        prompt_text=anchor_text,
+        reference_path=anchor_path,
+        instruction="",
+        pause_after=pause_after,
+        seed=seed,
+    )
+
+
+def trim_text_audio_silence(
+    audio: np.ndarray,
+    sample_rate: int,
+    frame_milliseconds: int = 10,
+    leading_padding_milliseconds: int = 20,
+    trailing_padding_milliseconds: int = 32,
+) -> np.ndarray:
+    output = np.asarray(audio, dtype=np.float32).reshape(-1)
+    frame_samples = max(1, int(sample_rate * frame_milliseconds / 1000))
+    frame_count = len(output) // frame_samples
+    if frame_count < 3:
+        return output.copy()
+
+    framed = output[: frame_count * frame_samples].reshape(frame_count, frame_samples)
+    frame_rms = np.sqrt(np.mean(np.square(framed), axis=1))
+    reference_rms = float(np.percentile(frame_rms, 90))
+    threshold = max(0.0008, min(0.006, reference_rms * 0.04))
+    active_frames = np.flatnonzero(frame_rms >= threshold)
+    if active_frames.size == 0:
+        return output.copy()
+
+    leading_padding = int(sample_rate * leading_padding_milliseconds / 1000)
+    trailing_padding = int(sample_rate * trailing_padding_milliseconds / 1000)
+    start = max(0, int(active_frames[0]) * frame_samples - leading_padding)
+    end = min(
+        len(output),
+        (int(active_frames[-1]) + 1) * frame_samples + trailing_padding,
+    )
+    return output[start:end].copy()
+
+
 def finished_text_audio(
     audio: np.ndarray,
     sample_rate: int,
     fade_milliseconds: int = 8,
 ) -> np.ndarray:
-    output = np.asarray(audio, dtype=np.float32).reshape(-1).copy()
+    output = trim_text_audio_silence(audio, sample_rate)
     fade_samples = min(
         int(sample_rate * fade_milliseconds / 1000),
         len(output) // 2,
@@ -500,12 +577,12 @@ def finished_text_audio(
 def text_pause_seconds(section: str) -> float:
     stripped = section.rstrip()
     if stripped.endswith("."):
-        return 0.22
-    if stripped.endswith("?"):
-        return 0.18
-    if stripped.endswith("!"):
         return 0.16
-    return 0.12
+    if stripped.endswith("?"):
+        return 0.13
+    if stripped.endswith("!"):
+        return 0.10
+    return 0.08
 
 
 @app.get("/health")
@@ -659,8 +736,12 @@ async def render_text(
     )
     if story_plan is not None:
         synthesis_sections = tuple(
-            TextSynthesisSection(
+            text_synthesis_section(
+                profile=profile,
+                profile_dir=profile_dir,
+                reference_path=reference_path,
                 text=beat.text,
+                delivery_tag=beat.delivery,
                 instruction=" ".join(
                     value
                     for value in (
@@ -670,19 +751,23 @@ async def render_text(
                     if value
                 ),
                 pause_after=beat.pause_after,
-                seed=42,
+                seed=synthesis_seed(index, beat.text),
             )
-            for beat in story_plan.beats
+            for index, beat in enumerate(story_plan.beats)
         )
     else:
         sections = split_text_for_synthesis(spoken_text)
         instruction = text_control_instruction(profile, delivery_tag)
         synthesis_sections = tuple(
-            TextSynthesisSection(
+            text_synthesis_section(
+                profile=profile,
+                profile_dir=profile_dir,
+                reference_path=reference_path,
                 text=section,
+                delivery_tag=delivery_tag,
                 instruction=instruction,
                 pause_after=text_pause_seconds(section),
-                seed=42 + index,
+                seed=synthesis_seed(index, section),
             )
             for index, section in enumerate(sections)
         )
@@ -713,9 +798,9 @@ async def render_text(
                 model_executor.submit(
                     synthesize,
                     pronunciation.text,
-                    reference_path,
-                    "",
-                    reference_path,
+                    section.prompt_path,
+                    section.prompt_text,
+                    section.reference_path,
                     profile,
                     section.instruction,
                     lora_path,
@@ -756,6 +841,11 @@ async def render_text(
         "X-Vox-Adapter": "trained" if lora_path else "base",
         "X-Vox-Section-Count": str(len(synthesis_sections)),
         "X-Vox-Performance-Mode": performance_mode,
+        "X-Vox-Style-Mode": (
+            "performance matched"
+            if any(section.prompt_text for section in synthesis_sections)
+            else "controlled reference"
+        ),
         "Cache-Control": "no-store",
     }
     return Response(bytes(output_pcm), media_type="audio/L16", headers=headers)

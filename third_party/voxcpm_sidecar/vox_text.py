@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass
 
@@ -56,13 +57,13 @@ _STORY_ROLE_DIRECTIONS = {
 }
 
 _ROLE_PAUSES = {
-    "hook": 0.30,
-    "setup": 0.24,
-    "escalation": 0.22,
-    "turn": 0.28,
-    "climax": 0.18,
-    "payoff": 0.40,
-    "resolution": 0.34,
+    "hook": 0.22,
+    "setup": 0.12,
+    "escalation": 0.10,
+    "turn": 0.18,
+    "climax": 0.08,
+    "payoff": 0.28,
+    "resolution": 0.24,
 }
 
 _OPERATIVE_STOP_WORDS = {
@@ -166,6 +167,12 @@ def delivery_instruction(value: str) -> str:
 def normalized_performance_mode(value: str) -> str:
     normalized = re.sub(r"[^a-z]", "", value.casefold())
     return STORYTELLING_MODE if normalized == STORYTELLING_MODE else STANDARD_MODE
+
+
+def synthesis_seed(index: int, text: str, base_seed: int = 42) -> int:
+    digest = hashlib.blake2s(text.encode("utf-8"), digest_size=4).digest()
+    text_value = int.from_bytes(digest, byteorder="little", signed=False)
+    return (base_seed + (max(0, index) * 104729) + text_value) % (2**31)
 
 
 def _split_oversized_section(section: str, maximum_characters: int) -> list[str]:
@@ -431,12 +438,11 @@ def story_beat_instruction(beat: StoryBeat, overall: str = "natural") -> str:
                 f"Let {baseline} be the overall color, but follow the changing "
                 "thought rather than forcing one emotion across the story."
             ),
-            "Keep the character identity and vocal placement consistent. "
-            "Let the pace move naturally between roughly 145 and 165 words per "
-            "minute: ease around reveals and move a little faster through action. "
-            "Use brief human clause breaths, but do not pause at every comma. "
-            "Complete this thought before moving on. Do not add words, announce "
-            "punctuation, or over-act.",
+            "Keep the character identity and vocal placement consistent. Vary phrase "
+            "length, pitch movement, and energy with the thought instead of falling "
+            "into a repeated cadence. Use brief human clause breaths, but do not pause "
+            "at every comma. Complete this thought before moving on. Do not add words, "
+            "announce punctuation, or over-act.",
         )
     ).strip()
 

@@ -18,10 +18,30 @@ from vox_delivery import (  # noqa: E402
     detect_delivery,
     load_pronunciations,
     specialize_delivery,
+    text_delivery_target,
 )
 
 
 class DeliveryDetectionTests(unittest.TestCase):
+    def test_text_delivery_targets_select_distinct_human_performance_shapes(self) -> None:
+        natural_features, natural = text_delivery_target("natural")
+        reflective_features, reflective = text_delivery_target("reflective")
+        urgent_features, urgent = text_delivery_target("urgent")
+        wry_features, wry = text_delivery_target("wry")
+
+        self.assertEqual(natural.label, "neutral")
+        self.assertEqual(reflective.label, "reflective")
+        self.assertEqual(urgent.label, "urgent")
+        self.assertEqual(wry.label, "sarcastic")
+        self.assertLess(
+            reflective_features["characters_per_second"],
+            urgent_features["characters_per_second"],
+        )
+        self.assertGreater(
+            urgent_features["pitch_range_semitones"],
+            natural_features["pitch_range_semitones"],
+        )
+
     def test_detects_calm_without_inventing_emotion(self) -> None:
         reading = detect_delivery(
             {

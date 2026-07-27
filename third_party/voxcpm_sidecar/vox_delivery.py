@@ -20,6 +20,220 @@ class DeliveryReading:
     intensity: float
 
 
+_TEXT_DELIVERY_SHAPES = {
+    "natural": (
+        "neutral",
+        0.50,
+        0.46,
+        0.42,
+        {
+            "characters_per_second": 15.0,
+            "pitch_range_semitones": 7.0,
+            "pitch_variation_semitones": 2.6,
+            "dynamic_db": 12.0,
+            "pause_ratio": 0.08,
+            "pitch_slope_semitones": 0.0,
+            "terminal_pitch_delta": -0.5,
+            "energy_slope_db": 0.0,
+        },
+    ),
+    "calm": (
+        "calm",
+        0.32,
+        0.28,
+        0.24,
+        {
+            "characters_per_second": 12.8,
+            "pitch_range_semitones": 5.0,
+            "pitch_variation_semitones": 1.8,
+            "dynamic_db": 9.5,
+            "pause_ratio": 0.11,
+            "pitch_slope_semitones": -0.5,
+            "terminal_pitch_delta": -1.0,
+            "energy_slope_db": -0.5,
+        },
+    ),
+    "measured": (
+        "measured",
+        0.22,
+        0.36,
+        0.30,
+        {
+            "characters_per_second": 10.8,
+            "pitch_range_semitones": 6.0,
+            "pitch_variation_semitones": 2.1,
+            "dynamic_db": 10.5,
+            "pause_ratio": 0.21,
+            "pitch_slope_semitones": -0.8,
+            "terminal_pitch_delta": -1.2,
+            "energy_slope_db": -0.3,
+        },
+    ),
+    "reflective": (
+        "reflective",
+        0.30,
+        0.42,
+        0.32,
+        {
+            "characters_per_second": 11.8,
+            "pitch_range_semitones": 6.5,
+            "pitch_variation_semitones": 2.3,
+            "dynamic_db": 11.0,
+            "pause_ratio": 0.16,
+            "pitch_slope_semitones": -2.0,
+            "terminal_pitch_delta": -1.8,
+            "energy_slope_db": -0.8,
+        },
+    ),
+    "warm": (
+        "calm",
+        0.38,
+        0.45,
+        0.36,
+        {
+            "characters_per_second": 13.2,
+            "pitch_range_semitones": 6.2,
+            "pitch_variation_semitones": 2.3,
+            "dynamic_db": 11.5,
+            "pause_ratio": 0.10,
+            "pitch_slope_semitones": 0.2,
+            "terminal_pitch_delta": -0.8,
+            "energy_slope_db": 0.5,
+        },
+    ),
+    "wry": (
+        "sarcastic",
+        0.50,
+        0.60,
+        0.44,
+        {
+            "characters_per_second": 15.0,
+            "pitch_range_semitones": 8.0,
+            "pitch_variation_semitones": 3.0,
+            "dynamic_db": 12.5,
+            "pause_ratio": 0.09,
+            "pitch_slope_semitones": -1.0,
+            "terminal_pitch_delta": -2.2,
+            "energy_slope_db": 0.0,
+        },
+    ),
+    "guarded": (
+        "calm",
+        0.42,
+        0.40,
+        0.48,
+        {
+            "characters_per_second": 14.0,
+            "pitch_range_semitones": 5.8,
+            "pitch_variation_semitones": 2.0,
+            "dynamic_db": 10.5,
+            "pause_ratio": 0.10,
+            "pitch_slope_semitones": -0.8,
+            "terminal_pitch_delta": -1.5,
+            "energy_slope_db": 0.4,
+        },
+    ),
+    "wounded": (
+        "reflective",
+        0.26,
+        0.50,
+        0.40,
+        {
+            "characters_per_second": 11.2,
+            "pitch_range_semitones": 7.0,
+            "pitch_variation_semitones": 2.7,
+            "dynamic_db": 12.0,
+            "pause_ratio": 0.18,
+            "pitch_slope_semitones": -2.2,
+            "terminal_pitch_delta": -2.0,
+            "energy_slope_db": -1.2,
+        },
+    ),
+    "resolute": (
+        "emphatic",
+        0.58,
+        0.62,
+        0.62,
+        {
+            "characters_per_second": 16.0,
+            "pitch_range_semitones": 8.5,
+            "pitch_variation_semitones": 3.1,
+            "dynamic_db": 14.0,
+            "pause_ratio": 0.07,
+            "pitch_slope_semitones": 0.6,
+            "terminal_pitch_delta": -1.8,
+            "energy_slope_db": 1.8,
+        },
+    ),
+    "urgent": (
+        "urgent",
+        0.82,
+        0.72,
+        0.84,
+        {
+            "characters_per_second": 19.0,
+            "pitch_range_semitones": 10.0,
+            "pitch_variation_semitones": 3.8,
+            "dynamic_db": 16.0,
+            "pause_ratio": 0.04,
+            "pitch_slope_semitones": 1.2,
+            "terminal_pitch_delta": -0.5,
+            "energy_slope_db": 3.5,
+        },
+    ),
+    "questioning": (
+        "questioning",
+        0.50,
+        0.58,
+        0.48,
+        {
+            "characters_per_second": 15.0,
+            "pitch_range_semitones": 8.0,
+            "pitch_variation_semitones": 3.0,
+            "dynamic_db": 12.5,
+            "pause_ratio": 0.08,
+            "pitch_slope_semitones": 1.0,
+            "terminal_pitch_delta": 4.5,
+            "energy_slope_db": 0.5,
+        },
+    ),
+    "sarcastic": (
+        "sarcastic",
+        0.54,
+        0.66,
+        0.52,
+        {
+            "characters_per_second": 15.5,
+            "pitch_range_semitones": 8.5,
+            "pitch_variation_semitones": 3.3,
+            "dynamic_db": 13.5,
+            "pause_ratio": 0.08,
+            "pitch_slope_semitones": -0.8,
+            "terminal_pitch_delta": -2.5,
+            "energy_slope_db": 0.8,
+        },
+    ),
+}
+
+
+def text_delivery_target(value: str) -> tuple[dict[str, float], DeliveryReading]:
+    normalized = re.sub(r"[^a-z]", "", value.casefold())
+    label, pace, expressiveness, intensity, features = _TEXT_DELIVERY_SHAPES.get(
+        normalized,
+        _TEXT_DELIVERY_SHAPES["natural"],
+    )
+    return (
+        dict(features),
+        DeliveryReading(
+            label=label,
+            instruction="",
+            pace=pace,
+            expressiveness=expressiveness,
+            intensity=intensity,
+        ),
+    )
+
+
 @dataclass(frozen=True)
 class PronunciationEntry:
     term: str

@@ -16,6 +16,7 @@ from vox_text import (  # noqa: E402
     split_text_for_synthesis,
     story_beat_instruction,
     supported_delivery_tags,
+    synthesis_seed,
 )
 
 ATTON_STORY = (
@@ -127,14 +128,29 @@ class StoryPerformanceTests(unittest.TestCase):
 
         self.assertTrue(all(beat.direction for beat in plan.beats))
         self.assertTrue(all(beat.emphasis for beat in plan.beats))
-        self.assertTrue(all(0.15 <= beat.pause_after <= 0.40 for beat in plan.beats))
+        self.assertTrue(all(0.08 <= beat.pause_after <= 0.30 for beat in plan.beats))
         self.assertIn("one listener", plan.summary)
         self.assertIn("land", plan.beats[-1].direction.casefold())
         self.assertIn("unhurried", plan.beats[0].direction.casefold())
         self.assertNotEqual(plan.beats[0].direction, plan.beats[-1].direction)
+        self.assertGreater(len({beat.pause_after for beat in plan.beats}), 2)
         continuing_instruction = story_beat_instruction(plan.beats[1], "wry")
         self.assertIn("continuous conversation", continuing_instruction)
         self.assertIn("do not pause at every comma", continuing_instruction)
+        self.assertIn("repeated cadence", continuing_instruction)
+        self.assertNotIn("145 and 165", continuing_instruction)
+
+    def test_story_sections_use_distinct_reproducible_seeds(self) -> None:
+        seeds = [
+            synthesis_seed(index, beat.text)
+            for index, beat in enumerate(plan_story_performance(ATTON_STORY).beats)
+        ]
+
+        self.assertEqual(len(seeds), len(set(seeds)))
+        self.assertEqual(seeds, [
+            synthesis_seed(index, beat.text)
+            for index, beat in enumerate(plan_story_performance(ATTON_STORY).beats)
+        ])
 
     def test_short_story_remains_a_single_complete_beat(self) -> None:
         text = "I found the map, and now we know where to go."
