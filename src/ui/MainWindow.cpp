@@ -5,6 +5,7 @@
 #include "ui/ProjectHud.h"
 #include "ui/ScriptViewerPanel.h"
 #include "ui/SettingsDialog.h"
+#include "ui/TextToSpeechPanel.h"
 #include "ui/TimelinePanel.h"
 #include "ui/VoiceLibraryPanel.h"
 
@@ -103,6 +104,10 @@ void MainWindow::createWorkspace() {
             &MainWindow::refreshCurrentProjectFromDisk);
     tabs->addTab(scriptViewer.release(), QStringLiteral("Scripts"));
 
+    auto textToSpeech = std::make_unique<TextToSpeechPanel>(tabs.get());
+    m_textToSpeechPanel = textToSpeech.get();
+    tabs->addTab(textToSpeech.release(), QStringLiteral("Text to Speech"));
+
     auto timeline = std::make_unique<TimelinePanel>(tabs.get());
     m_timelinePanel = timeline.get();
     connect(m_timelinePanel, &TimelinePanel::sequenceChanged, this,
@@ -127,6 +132,9 @@ void MainWindow::setCurrentProject(core::Project project) {
     }
     if (m_scriptViewerPanel != nullptr) {
         m_scriptViewerPanel->setProject(m_currentProject);
+    }
+    if (m_textToSpeechPanel != nullptr) {
+        m_textToSpeechPanel->setProject(m_currentProject);
     }
     if (m_timelinePanel != nullptr) {
         m_timelinePanel->setProject(m_currentProject);
@@ -206,6 +214,9 @@ void MainWindow::refreshCurrentProjectFromDisk() {
     updateWindowTitle();
     if (m_scriptViewerPanel != nullptr) {
         m_scriptViewerPanel->setProject(m_currentProject);
+    }
+    if (m_textToSpeechPanel != nullptr) {
+        m_textToSpeechPanel->setProject(m_currentProject);
     }
     if (m_timelinePanel != nullptr) {
         m_timelinePanel->setProject(m_currentProject);

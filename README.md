@@ -20,7 +20,8 @@ and local RVC voice conversion.
 - Manages voices, character assignments, takes, and dialogue timelines.
 - Uses local VoxCPM2 character adapters to keep a selected voice stable while
   applying mic-derived timing, emphasis, and emotional controls.
-- Provides TTS, phrase-live VoxCPM2, live microphone, and local RVC UI paths.
+- Provides local emotional TTS, phrase-live and monologue VoxCPM2 capture,
+  live microphone, and local RVC UI paths.
 - Includes native ONNX RVC plumbing for future in-process inference validation.
 
 ## Requirements
@@ -131,6 +132,22 @@ they can be played, starred, revealed in Explorer, or deleted. **Broadcast**
 sends the same character result to a selected virtual audio line for OBS, games,
 or chat software.
 
+Use **Monologue** for an uninterrupted long-form performance. Vox Studio keeps
+recording while you speak, divides the performance only at natural pauses,
+renders every section after you stop, and then plays the complete character
+result. An optional exact script is allocated across those sections at sentence
+boundaries. Choose a capture name and folder before recording; the finished
+changed-voice performance is saved there as WAV and can be opened directly with
+**Open in Explorer**. When take saving is enabled, it is also stored in the
+project.
+
+The **Text to Speech** workspace generates typed dialogue with the same local
+VoxCPM2 character profiles. Long scripts are split and stitched at sentence
+boundaries. Select one delivery tag from Natural, Calm, Measured, Reflective,
+Warm, Wry, Guarded, Wounded, Resolute, Urgent, Questioning, or Sarcastic.
+Generated speech plays through the selected output and is saved under
+**Generated Takes** for replay, starring, Explorer access, or deletion.
+
 VoxCPM2 Performance mode is phrase-live rather than zero-latency waveform
 conversion: the result begins after a natural pause and local inference delay.
 The model remains loaded between phrases. Use **Local** RVC when immediate
@@ -181,8 +198,8 @@ are never included in the repository.
 
 `third_party\voxcpm_sidecar\pronunciations.json` contains local synthesis-only
 respellings for character and place names such as Carth, Atton, Bao-Dur, Kreia,
-Telos, and Nar Shaddaa. The saved script and take transcript keep their original
-spelling.
+Telos, Rodian, and Nar Shaddaa. The saved script and take transcript keep their
+original spelling.
 
 The source tree contains the service and profile tooling, not model weights or
 licensed voice audio. Those remain local user data.

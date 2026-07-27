@@ -320,6 +320,16 @@ class PronunciationTests(unittest.TestCase):
             "Bao-Dur met Carth on Telos before leaving for Nar Shaddaa.",
         )
 
+    def test_applies_rodian_pronunciation_without_changing_display_text(self) -> None:
+        entries = load_pronunciations(SIDECAR_ROOT / "pronunciations.json")
+        original = "The Rodian returned to Telos."
+
+        result = apply_pronunciations(original, entries)
+
+        self.assertEqual(result.text, "The Rode-ian returned to TEE-los.")
+        self.assertEqual(result.matched_terms, ("Telos", "Rodian"))
+        self.assertEqual(original, "The Rodian returned to Telos.")
+
     def test_does_not_replace_inside_unrelated_words(self) -> None:
         entries = load_pronunciations(SIDECAR_ROOT / "pronunciations.json")
         result = apply_pronunciations("The carton is open.", entries)

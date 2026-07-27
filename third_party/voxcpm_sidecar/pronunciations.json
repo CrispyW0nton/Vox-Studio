@@ -44,6 +44,11 @@
       "aliases": ["Tilos", "Tee Los"]
     },
     {
+      "term": "Rodian",
+      "spoken": "Rode-ian",
+      "aliases": ["Rodean"]
+    },
+    {
       "term": "Carth",
       "spoken": "Karth",
       "aliases": ["Karth"]

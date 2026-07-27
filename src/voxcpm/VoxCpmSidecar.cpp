@@ -7,6 +7,7 @@
 
 #include <filesystem>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <vector>
 
@@ -27,8 +28,27 @@ constexpr auto kEndpoint = "http://127.0.0.1:18990";
            exitCode == STILL_ACTIVE;
 }
 
+[[nodiscard]] std::filesystem::path executableDirectory() {
+    std::vector<wchar_t> pathBuffer(32768U, L'\0');
+    const auto length = GetModuleFileNameW(
+        nullptr,
+        pathBuffer.data(),
+        static_cast<DWORD>(pathBuffer.size()));
+    if (length == 0U || length >= pathBuffer.size()) {
+        return {};
+    }
+    return std::filesystem::path{
+               std::wstring_view{pathBuffer.data(), static_cast<std::size_t>(length)}}
+        .parent_path();
+}
+
 [[nodiscard]] std::vector<std::filesystem::path> bundleCandidates() {
     std::vector<std::filesystem::path> candidates;
+    const auto executable = executableDirectory();
+    if (!executable.empty()) {
+        candidates.push_back(executable / "voxcpm_sidecar");
+        candidates.push_back(executable / "third_party" / "voxcpm_sidecar");
+    }
     std::error_code error;
     const auto current = std::filesystem::current_path(error);
     if (!error) {
@@ -83,6 +103,22 @@ public:
         if (processRunning(m_process)) {
             return status("VoxCPM2 is ready.");
         }
+        const auto root = defaultRoot();
+        for (const auto& candidate : bundleCandidates()) {
+            std::error_code equivalentError;
+            const bool sameBundle =
+                std::filesystem::equivalent(candidate, root, equivalentError);
+            if (!std::filesystem::exists(candidate / kLauncherName) ||
+                (!equivalentError && sameBundle)) {
+                continue;
+            }
+            auto copied = installBundle(candidate, root);
+            if (!copied) {
+                return copied.error();
+            }
+            break;
+        }
+
         const VoxCpmClient existingService{kEndpoint};
         auto health = existingService.health();
         if (health && health.value().ok) {
@@ -91,7 +127,6 @@ public:
         }
         m_externalRunning = false;
 
-        const auto root = defaultRoot();
         const auto launcher = root / kLauncherName;
         const auto manifest = root / kManifestName;
         if (!std::filesystem::exists(launcher) || !std::filesystem::exists(manifest)) {

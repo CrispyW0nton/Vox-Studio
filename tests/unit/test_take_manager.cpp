@@ -194,6 +194,36 @@ TEST_CASE("take manager labels VoxCPM2 performance takes", "[core][takes][voxcpm
     CHECK(std::filesystem::exists(savedTake.value().absolutePath));
 }
 
+TEST_CASE("take manager stores VoxCPM2 text delivery tags", "[core][takes][voxcpm][tts]") {
+    const TemporaryDirectory directory;
+    const auto projectRoot = directory.path() / "VoxCpmTextTakes.vox";
+
+    const voxstudio::db::ProjectRepository projectRepository;
+    auto project = projectRepository.createProject(projectRoot, "VoxCpmTextTakes");
+    REQUIRE(project.hasValue());
+
+    const voxstudio::db::VoiceRepository voiceRepository;
+    const voxstudio::db::VoiceRecord voice{
+        "voice_carth", "Carth", "ivc", "{}", "{}", "2026-01-01T00:00:00Z",
+        "2026-01-01T00:00:00Z"};
+    REQUIRE(voiceRepository.upsertVoice(projectRoot, voice).hasValue());
+
+    const voxstudio::db::ScriptRepository scriptRepository;
+    auto line = scriptRepository.createPerformanceLine(
+        projectRoot, "Carth", "voice_carth", "The Rodian remembered Telos.");
+    REQUIRE(line.hasValue());
+
+    voxstudio::core::TakeManager manager;
+    auto savedTake = manager.saveVoxCpmTextTake(
+        projectRoot, line.value().id, "voice_carth", sinePcm(), "reflective");
+
+    REQUIRE(savedTake.hasValue());
+    CHECK(savedTake.value().take.source == "voxcpm2_tts");
+    CHECK(savedTake.value().take.metadataJson.find("\"delivery\":\"reflective\"") !=
+          std::string::npos);
+    CHECK(std::filesystem::exists(savedTake.value().absolutePath));
+}
+
 TEST_CASE("take manager stores local RVC takes with model id", "[core][takes][rvc]") {
     const TemporaryDirectory directory;
     const auto projectRoot = directory.path() / "RvcTakes.vox";

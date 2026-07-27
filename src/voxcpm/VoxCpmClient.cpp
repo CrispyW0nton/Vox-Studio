@@ -13,6 +13,7 @@ namespace {
 
 constexpr std::chrono::seconds kHealthTimeout{5};
 constexpr std::chrono::seconds kRenderTimeout{180};
+constexpr std::chrono::seconds kTextRenderTimeout{600};
 
 [[nodiscard]] std::string joinedUrl(const std::string& baseUrl, const std::string& path) {
     if (baseUrl.empty()) {
@@ -98,6 +99,41 @@ CprVoxCpmHttpTransport::postPerformance(const std::string& path,
         result.delivery = headerValue(response.header, "x-vox-delivery");
         result.pronunciations = headerValue(response.header, "x-vox-pronunciations");
         result.adapter = headerValue(response.header, "x-vox-adapter");
+        result.sectionCount = integerHeader(response.header, "x-vox-section-count", 1);
+        return result;
+    } catch (const std::exception& exception) {
+        return core::makeError(core::ErrorCode::FileSystemFailure, exception.what());
+    }
+}
+
+core::Expected<VoxCpmHttpResponse>
+CprVoxCpmHttpTransport::postText(const std::string& path,
+                                 const VoxCpmTextRequest& request) const {
+    try {
+        cpr::Multipart multipart{{"voice_id", request.voiceId},
+                                 {"text", request.text},
+                                 {"delivery", request.delivery}};
+
+        const auto response =
+            cpr::Post(cpr::Url{joinedUrl(m_baseUrl, path)},
+                      cpr::Header{{"Accept", "audio/L16"}},
+                      std::move(multipart),
+                      cpr::Timeout{kTextRenderTimeout});
+        if (response.error.code != cpr::ErrorCode::OK) {
+            return core::makeError(core::ErrorCode::FileSystemFailure,
+                                   response.error.message);
+        }
+
+        VoxCpmHttpResponse result;
+        result.statusCode = static_cast<int>(response.status_code);
+        result.body = response.text;
+        result.characterName = headerValue(response.header, "x-vox-character");
+        result.sampleRate = integerHeader(response.header, "x-vox-sample-rate", 48000);
+        result.latencyMs = integerHeader(response.header, "x-vox-latency-ms", 0);
+        result.delivery = headerValue(response.header, "x-vox-delivery");
+        result.pronunciations = headerValue(response.header, "x-vox-pronunciations");
+        result.adapter = headerValue(response.header, "x-vox-adapter");
+        result.sectionCount = integerHeader(response.header, "x-vox-section-count", 1);
         return result;
     } catch (const std::exception& exception) {
         return core::makeError(core::ErrorCode::FileSystemFailure, exception.what());
@@ -183,12 +219,59 @@ VoxCpmClient::renderPerformance(const VoxCpmRenderRequest& request) const {
     return result;
 }
 
+core::Expected<VoxCpmTextResult>
+VoxCpmClient::renderText(const VoxCpmTextRequest& request) const {
+    if (request.voiceId.empty()) {
+        return clientError("Select a VoxCPM2 character profile first.");
+    }
+    if (request.text.empty()) {
+        return clientError("Enter text to synthesize.");
+    }
+    if (request.text.size() > 10000U) {
+        return clientError("Text-to-speech captures are limited to 10,000 characters.");
+    }
+    if (m_transport == nullptr) {
+        return core::makeError(core::ErrorCode::FileSystemFailure,
+                               "VoxCPM2 HTTP transport is not configured.");
+    }
+
+    auto response = m_transport->postText(voxCpmTextPath(), request);
+    if (!response) {
+        return response.error();
+    }
+    if (response.value().statusCode < 200 || response.value().statusCode >= 300) {
+        return core::makeError(core::ErrorCode::FileSystemFailure, response.value().body);
+    }
+    if (response.value().body.empty()) {
+        return core::makeError(core::ErrorCode::FileSystemFailure,
+                               "VoxCPM2 returned no text-to-speech audio.");
+    }
+
+    const auto& body = response.value().body;
+    VoxCpmTextResult result;
+    result.pcm16Audio.assign(
+        reinterpret_cast<const std::uint8_t*>(body.data()),
+        reinterpret_cast<const std::uint8_t*>(body.data() + body.size()));
+    result.characterName = response.value().characterName;
+    result.sampleRate = response.value().sampleRate;
+    result.latencyMs = response.value().latencyMs;
+    result.delivery = response.value().delivery;
+    result.pronunciations = response.value().pronunciations;
+    result.adapter = response.value().adapter;
+    result.sectionCount = response.value().sectionCount;
+    return result;
+}
+
 std::string voxCpmHealthPath() {
     return "/health";
 }
 
 std::string voxCpmRenderPath() {
     return "/render_performance";
+}
+
+std::string voxCpmTextPath() {
+    return "/render_text";
 }
 
 } // namespace voxstudio::voxcpm

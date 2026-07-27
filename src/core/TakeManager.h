@@ -48,6 +48,13 @@ public:
                    const audio::PcmAudioBuffer& audio) const;
 
     [[nodiscard]] Expected<SavedTake>
+    saveVoxCpmTextTake(const std::filesystem::path& projectRoot,
+                       const std::string& lineId,
+                       const std::string& voiceId,
+                       const audio::PcmAudioBuffer& audio,
+                       const std::string& delivery) const;
+
+    [[nodiscard]] Expected<SavedTake>
     saveRvcLocalTake(const std::filesystem::path& projectRoot,
                      const std::string& lineId,
                      const std::string& rvcModelId,

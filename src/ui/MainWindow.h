@@ -19,6 +19,7 @@ namespace voxstudio::ui {
 class ProjectHud;
 class LiveMicPanel;
 class ScriptViewerPanel;
+class TextToSpeechPanel;
 class TimelinePanel;
 class VoiceLibraryPanel;
 
@@ -54,6 +55,7 @@ private:
     ProjectHud* m_projectHud{nullptr};
     LiveMicPanel* m_liveMicPanel{nullptr};
     ScriptViewerPanel* m_scriptViewerPanel{nullptr};
+    TextToSpeechPanel* m_textToSpeechPanel{nullptr};
     TimelinePanel* m_timelinePanel{nullptr};
     VoiceLibraryPanel* m_voiceLibraryPanel{nullptr};
     QLabel* m_workspaceLabel{nullptr};

@@ -5,6 +5,7 @@
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QGroupBox>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -73,6 +74,7 @@ void LiveMicPanelTest::exposesLiveMicControlsAndLatencyProbe() {
     auto* modeCombo = panel.findChild<QComboBox*>(QStringLiteral("LiveMicModeCombo"));
     QVERIFY(modeCombo != nullptr);
     QCOMPARE(modeCombo->currentText(), QStringLiteral("Mic Check"));
+    QVERIFY(modeCombo->findText(QStringLiteral("Monologue")) >= 0);
 
     auto* voiceCombo = panel.findChild<QComboBox*>(QStringLiteral("LiveMicVoiceCombo"));
     QVERIFY(voiceCombo != nullptr);
@@ -156,7 +158,24 @@ void LiveMicPanelTest::exposesLiveMicControlsAndLatencyProbe() {
 
     auto* lineIdEdit = panel.findChild<QLineEdit*>(QStringLiteral("LiveMicLineIdEdit"));
     QVERIFY(lineIdEdit != nullptr);
-    QVERIFY(lineIdEdit->placeholderText().contains(QStringLiteral("line")));
+    QVERIFY(lineIdEdit->placeholderText().contains(QStringLiteral("script")));
+
+    auto* monologueGroup =
+        panel.findChild<QGroupBox*>(QStringLiteral("LiveMicMonologueCaptureGroup"));
+    QVERIFY(monologueGroup != nullptr);
+    QVERIFY(!monologueGroup->isVisible());
+    modeCombo->setCurrentText(QStringLiteral("Monologue"));
+    QVERIFY(monologueGroup->isVisible());
+    auto* captureName =
+        panel.findChild<QLineEdit*>(QStringLiteral("LiveMicCaptureNameEdit"));
+    QVERIFY(captureName != nullptr);
+    auto* captureFolder =
+        panel.findChild<QLineEdit*>(QStringLiteral("LiveMicCaptureFolderEdit"));
+    QVERIFY(captureFolder != nullptr);
+    QVERIFY(!captureFolder->text().isEmpty());
+    auto* openCapture = panel.findChild<QPushButton*>(
+        QStringLiteral("LiveMicOpenCaptureFolderButton"));
+    QVERIFY(openCapture != nullptr);
 
     auto* recentTakes = panel.findChild<QListWidget*>(QStringLiteral("TakeList"));
     QVERIFY(recentTakes != nullptr);

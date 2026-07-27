@@ -5,5 +5,5 @@
   "launcher": "launch_voxcpm_sidecar.cmd",
   "server": "vox_voxcpm_server.py",
   "profile_format": 5,
-  "notes": "Supports hot-swappable local character LoRA adapters, mic-derived delivery controls, stable character references, phrase transcription, and a local game-pronunciation lexicon."
+  "notes": "Supports hot-swappable local character LoRA adapters, mic-derived delivery controls, long-form emotional text synthesis, stable character references, phrase transcription, and a local game-pronunciation lexicon."
 }

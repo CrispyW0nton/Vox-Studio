@@ -132,7 +132,8 @@ Expected<SavedTake> saveVoiceTake(const db::TakeRepository& repository,
                                   const std::string& rvcModelId,
                                   const audio::PcmAudioBuffer& audio,
                                   const VoiceSettings& settings,
-                                  const std::string& source) {
+                                  const std::string& source,
+                                  const std::string& delivery = {}) {
     if (projectRoot.empty() || lineId.empty() || source.empty()) {
         return makeError(ErrorCode::InvalidArgument,
                          "Project root, line id, and take source are required.");
@@ -168,12 +169,15 @@ Expected<SavedTake> saveVoiceTake(const db::TakeRepository& repository,
     metadata["codec"] = "opus";
     if (source == "sts") {
         metadata["engine"] = "elevenlabs_sts";
-    } else if (source == "voxcpm2") {
+    } else if (source == "voxcpm2" || source == "voxcpm2_tts") {
         metadata["engine"] = "voxcpm2";
     } else if (source == "rvc_local") {
         metadata["engine"] = "rvc_sidecar";
     } else {
         metadata["engine"] = "elevenlabs_tts";
+    }
+    if (!delivery.empty()) {
+        metadata["delivery"] = delivery;
     }
 
     db::NewTakeRecord record;
@@ -230,6 +234,23 @@ TakeManager::saveVoxCpmTake(const std::filesystem::path& projectRoot,
                          audio,
                          defaultVoiceSettings(),
                          "voxcpm2");
+}
+
+Expected<SavedTake>
+TakeManager::saveVoxCpmTextTake(const std::filesystem::path& projectRoot,
+                                const std::string& lineId,
+                                const std::string& voiceId,
+                                const audio::PcmAudioBuffer& audio,
+                                const std::string& delivery) const {
+    return saveVoiceTake(m_repository,
+                         projectRoot,
+                         lineId,
+                         voiceId,
+                         {},
+                         audio,
+                         defaultVoiceSettings(),
+                         "voxcpm2_tts",
+                         delivery);
 }
 
 Expected<SavedTake>

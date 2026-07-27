@@ -40,6 +40,11 @@ from vox_profiles import (
     resolve_profile_asset,
     synthesis_inputs,
 )
+from vox_text import (
+    delivery_instruction,
+    normalized_delivery_tag,
+    split_text_for_synthesis,
+)
 
 
 ENGINE_ROOT = Path(
@@ -53,7 +58,7 @@ PROFILE_ROOT = Path(
 
 os.environ.setdefault("HF_HOME", str(ENGINE_ROOT / "cache"))
 
-app = FastAPI(title="Vox Studio VoxCPM2", version="1.0")
+app = FastAPI(title="Vox Studio VoxCPM2", version="1.1")
 model_lock = threading.Lock()
 transcriber_lock = threading.Lock()
 delivery_lock = threading.Lock()
@@ -419,11 +424,12 @@ def synthesize(
     profile: dict,
     control_instruction: str,
     lora_path: Path | None,
+    seed: int = 42,
 ) -> tuple[np.ndarray, int]:
     with model_lock:
         model = get_tts_model()
         activate_lora(model, lora_path, active_lora)
-        torch.manual_seed(42)
+        torch.manual_seed(seed)
         options = generation_options(
             spoken_text,
             prompt_path,
@@ -434,6 +440,54 @@ def synthesize(
         )
         rendered = model.generate(**options)
         return rendered, int(model.tts_model.sample_rate)
+
+
+def text_control_instruction(profile: dict, delivery_tag: str) -> str:
+    return " ".join(
+        value
+        for value in (
+            control_identity_instruction(profile),
+            delivery_instruction(delivery_tag),
+        )
+        if value
+    )
+
+
+def finished_text_audio(
+    audio: np.ndarray,
+    sample_rate: int,
+    fade_milliseconds: int = 8,
+) -> np.ndarray:
+    output = np.asarray(audio, dtype=np.float32).reshape(-1).copy()
+    fade_samples = min(
+        int(sample_rate * fade_milliseconds / 1000),
+        len(output) // 2,
+    )
+    if fade_samples > 0:
+        output[:fade_samples] *= np.linspace(
+            0.0,
+            1.0,
+            fade_samples,
+            dtype=np.float32,
+        )
+        output[-fade_samples:] *= np.linspace(
+            1.0,
+            0.0,
+            fade_samples,
+            dtype=np.float32,
+        )
+    return output
+
+
+def text_pause_seconds(section: str) -> float:
+    stripped = section.rstrip()
+    if stripped.endswith("."):
+        return 0.22
+    if stripped.endswith("?"):
+        return 0.18
+    if stripped.endswith("!"):
+        return 0.16
+    return 0.12
 
 
 @app.get("/health")
@@ -550,6 +604,90 @@ def render_performance(
         ),
         "X-Vox-Synthesis-Mode": "controlled" if control_instruction else "continuation",
         "X-Vox-Adapter": "trained" if lora_path else "base",
+        "Cache-Control": "no-store",
+    }
+    return Response(output_pcm, media_type="audio/L16", headers=headers)
+
+
+@app.post("/render_text")
+def render_text(
+    voice_id: str = Form(...),
+    text: str = Form(...),
+    delivery: str = Form("natural"),
+) -> Response:
+    spoken_text = re.sub(r"\s+", " ", text).strip()
+    if not spoken_text:
+        raise HTTPException(status_code=400, detail="Enter text to synthesize.")
+    if len(spoken_text) > 10000:
+        raise HTTPException(
+            status_code=400,
+            detail="Text-to-speech captures are limited to 10,000 characters.",
+        )
+
+    profile, profile_dir, reference_path = load_profile(voice_id)
+    try:
+        lora_path = resolve_profile_asset(profile, profile_dir, "lora_adapter")
+    except ValueError as exception:
+        raise HTTPException(status_code=500, detail=str(exception)) from exception
+
+    delivery_tag = normalized_delivery_tag(delivery)
+    instruction = text_control_instruction(profile, delivery_tag)
+    sections = split_text_for_synthesis(spoken_text)
+    started = time.perf_counter()
+    rendered_sections: list[np.ndarray] = []
+    matched_pronunciations: list[str] = []
+    output_sample_rate = 0
+
+    for index, section in enumerate(sections):
+        pronunciation = apply_pronunciations(section, pronunciations)
+        for term in pronunciation.matched_terms:
+            if term not in matched_pronunciations:
+                matched_pronunciations.append(term)
+        rendered, section_sample_rate = model_executor.submit(
+            synthesize,
+            pronunciation.text,
+            reference_path,
+            "",
+            reference_path,
+            profile,
+            instruction,
+            lora_path,
+            42 + index,
+        ).result()
+        if output_sample_rate and output_sample_rate != section_sample_rate:
+            raise HTTPException(
+                status_code=500,
+                detail="VoxCPM2 returned inconsistent section sample rates.",
+            )
+        output_sample_rate = section_sample_rate
+        rendered_sections.append(
+            finished_text_audio(rendered, output_sample_rate)
+        )
+        if index + 1 < len(sections):
+            rendered_sections.append(
+                np.zeros(
+                    int(output_sample_rate * text_pause_seconds(section)),
+                    dtype=np.float32,
+                )
+            )
+
+    if not rendered_sections or output_sample_rate <= 0:
+        raise HTTPException(status_code=500, detail="VoxCPM2 returned no text audio.")
+
+    output = np.clip(np.concatenate(rendered_sections), -1.0, 1.0)
+    output_pcm = (output * 32767.0).astype("<i2").tobytes()
+    latency_ms = int((time.perf_counter() - started) * 1000.0)
+    headers = {
+        "X-Vox-Sample-Rate": str(output_sample_rate),
+        "X-Vox-Latency-Ms": str(latency_ms),
+        "X-Vox-Character": urllib.parse.quote(str(profile.get("name", voice_id))),
+        "X-Vox-Transcript": urllib.parse.quote(spoken_text[:400]),
+        "X-Vox-Delivery": delivery_tag,
+        "X-Vox-Pronunciations": urllib.parse.quote(
+            ", ".join(matched_pronunciations)
+        ),
+        "X-Vox-Adapter": "trained" if lora_path else "base",
+        "X-Vox-Section-Count": str(len(sections)),
         "Cache-Control": "no-store",
     }
     return Response(output_pcm, media_type="audio/L16", headers=headers)

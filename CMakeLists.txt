@@ -59,6 +59,8 @@ set(VOXSTUDIO_CORE_SOURCES
     src/core/SequenceRenderer.h
     src/core/TakeManager.cpp
     src/core/TakeManager.h
+    src/core/TextSegmentation.cpp
+    src/core/TextSegmentation.h
     src/db/Database.cpp
     src/db/Database.h
     src/db/Migrations.cpp
@@ -184,6 +186,8 @@ set(VOXSTUDIO_APP_SOURCES
     src/ui/ScriptViewerPanel.h
     src/ui/TakeListWidget.cpp
     src/ui/TakeListWidget.h
+    src/ui/TextToSpeechPanel.cpp
+    src/ui/TextToSpeechPanel.h
     src/ui/TimelinePanel.cpp
     src/ui/TimelinePanel.h
     src/ui/VoiceLibraryPanel.cpp
@@ -244,6 +248,15 @@ if(WIN32)
         COMMENT "Deploying Qt Windows platform plugin for VoxStudio"
         VERBATIM
     )
+    add_custom_command(
+        TARGET VoxStudio
+        POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_CURRENT_SOURCE_DIR}/third_party/voxcpm_sidecar"
+                "$<TARGET_FILE_DIR:VoxStudio>/voxcpm_sidecar"
+        COMMENT "Deploying VoxCPM2 sidecar for VoxStudio"
+        VERBATIM
+    )
 endif()
 
 set_target_properties(
@@ -274,6 +287,7 @@ if(BUILD_TESTING)
         tests/unit/test_sequence_repository.cpp
         tests/unit/test_sts_api.cpp
         tests/unit/test_take_manager.cpp
+        tests/unit/test_text_segmentation.cpp
         tests/unit/test_tts_api.cpp
         tests/unit/test_smoke.cpp
         tests/unit/test_voice_repository.cpp
@@ -411,6 +425,45 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME VoxStudioLiveMicQtTests COMMAND VoxStudioLiveMicQtTests)
 
+    add_executable(
+        VoxStudioTextToSpeechQtTests
+        tests/unit/test_text_to_speech_panel.cpp
+        src/ui/TakeListWidget.cpp
+        src/ui/TakeListWidget.h
+        src/ui/TextToSpeechPanel.cpp
+        src/ui/TextToSpeechPanel.h
+    )
+    target_include_directories(
+        VoxStudioTextToSpeechQtTests
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        VoxStudioTextToSpeechQtTests
+        PRIVATE Qt6::Concurrent
+                Qt6::Core
+                Qt6::Test
+                Qt6::Widgets
+                VoxStudioCore
+    )
+    voxstudio_apply_project_warnings(VoxStudioTextToSpeechQtTests)
+    if(WIN32)
+        set(VOXSTUDIO_TEXT_TO_SPEECH_QT_TEST_PLATFORM_PLUGIN
+            "$<TARGET_FILE_DIR:VoxStudioTextToSpeechQtTests>/platforms/${QT_WINDOWS_PLUGIN_NAME}"
+        )
+        add_custom_command(
+            TARGET VoxStudioTextToSpeechQtTests
+            POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory
+                    "$<TARGET_FILE_DIR:VoxStudioTextToSpeechQtTests>/platforms"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "$<TARGET_FILE:Qt6::QWindowsIntegrationPlugin>"
+                    "${VOXSTUDIO_TEXT_TO_SPEECH_QT_TEST_PLATFORM_PLUGIN}"
+            COMMENT "Deploying Qt Windows platform plugin for VoxStudioTextToSpeechQtTests"
+            VERBATIM
+        )
+    endif()
+    add_test(NAME VoxStudioTextToSpeechQtTests COMMAND VoxStudioTextToSpeechQtTests)
+
     if(Python3_Interpreter_FOUND)
         add_test(
             NAME VoxStudioRvcToolTests
@@ -431,6 +484,11 @@ if(BUILD_TESTING)
             NAME VoxStudioVoxCpmProfileTests
             COMMAND ${Python3_EXECUTABLE}
                     "${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/test_voxcpm_profiles.py"
+        )
+        add_test(
+            NAME VoxStudioVoxCpmTextTests
+            COMMAND ${Python3_EXECUTABLE}
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/test_voxcpm_text.py"
         )
         add_test(
             NAME VoxStudioKotorAudioDatasetTests

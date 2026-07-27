@@ -2,6 +2,7 @@
 
 #include "audio/AudioFile.h"
 #include "core/TakeManager.h"
+#include "core/TextSegmentation.h"
 #include "rvc/OnnxRvcEngine.h"
 #include "rvc/RvcClient.h"
 #include "ui/LiveAudioProcessor.h"
@@ -14,6 +15,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QEventLoop>
+#include <QFileDialog>
 #include <QFrame>
 #include <QGridLayout>
 #include <QGroupBox>
@@ -30,6 +32,7 @@
 #include <QSettings>
 #include <QSlider>
 #include <QSpinBox>
+#include <QStandardPaths>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QtConcurrent/QtConcurrentRun>
@@ -39,6 +42,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstdint>
+#include <iterator>
 #include <memory>
 #include <span>
 #include <string>
@@ -124,6 +128,35 @@ template <typename TWidget, typename... TArgs>
     }
 
     return name.left(std::min(name.size(), qsizetype{2})).toUpper();
+}
+
+[[nodiscard]] QString safeCaptureName(QString name) {
+    name = name.trimmed();
+    static const auto illegal = QStringLiteral("<>:\"/\\|?*");
+    for (auto index = 0; index < name.size(); ++index) {
+        if (name[index].unicode() < 32U || illegal.contains(name[index])) {
+            name[index] = QChar{'_'};
+        }
+    }
+    while (name.endsWith(QChar{'.'}) || name.endsWith(QChar{' '})) {
+        name.chop(1);
+    }
+    return name.isEmpty() ? QStringLiteral("Monologue") : name;
+}
+
+[[nodiscard]] std::filesystem::path uniqueCapturePath(
+    const std::filesystem::path& folder,
+    const QString& captureName) {
+    const auto baseName = safeCaptureName(captureName);
+    auto candidate =
+        folder / std::filesystem::path{(baseName + QStringLiteral(".wav")).toStdWString()};
+    for (int suffix = 2; std::filesystem::exists(candidate); ++suffix) {
+        candidate =
+            folder /
+            std::filesystem::path{
+                QStringLiteral("%1 (%2).wav").arg(baseName).arg(suffix).toStdWString()};
+    }
+    return candidate;
 }
 
 [[nodiscard]] QLabel* addValueLabel(QLayout& layout, const QString& objectName) {
@@ -519,7 +552,7 @@ LiveMicPanel::LiveMicPanel(QWidget* parent)
     advancedLayout->addWidget(m_recordTakeCheck, 0, 0);
     m_lineIdEdit = addOwnedWidget<QLineEdit>(*advancedLayout);
     m_lineIdEdit->setObjectName(QStringLiteral("LiveMicLineIdEdit"));
-    m_lineIdEdit->setPlaceholderText(QStringLiteral("Type the line to perform"));
+    m_lineIdEdit->setPlaceholderText(QStringLiteral("Optional exact script"));
     advancedLayout->addWidget(m_lineIdEdit, 0, 1);
     m_cloudButton =
         addOwnedWidget<QPushButton>(*advancedLayout, QStringLiteral("Record Performance"));
@@ -540,6 +573,44 @@ LiveMicPanel::LiveMicPanel(QWidget* parent)
     advancedGroup->setLayout(advancedLayout.release());
     centerLayout->addWidget(advancedGroup.release());
 
+    auto monologueGroup = std::make_unique<QGroupBox>(QStringLiteral("Monologue Capture"));
+    m_monologueCaptureGroup = monologueGroup.get();
+    m_monologueCaptureGroup->setObjectName(QStringLiteral("LiveMicMonologueCaptureGroup"));
+    auto monologueLayout = std::make_unique<QGridLayout>();
+    monologueLayout->addWidget(
+        std::make_unique<QLabel>(QStringLiteral("Capture name")).release(), 0, 0);
+    m_captureNameEdit = addOwnedWidget<QLineEdit>(*monologueLayout);
+    m_captureNameEdit->setObjectName(QStringLiteral("LiveMicCaptureNameEdit"));
+    m_captureNameEdit->setPlaceholderText(QStringLiteral("Story or scene name"));
+    monologueLayout->addWidget(m_captureNameEdit, 0, 1, 1, 2);
+    monologueLayout->addWidget(
+        std::make_unique<QLabel>(QStringLiteral("Save folder")).release(), 1, 0);
+    m_captureFolderEdit = addOwnedWidget<QLineEdit>(*monologueLayout);
+    m_captureFolderEdit->setObjectName(QStringLiteral("LiveMicCaptureFolderEdit"));
+    monologueLayout->addWidget(m_captureFolderEdit, 1, 1);
+    m_browseCaptureFolderButton =
+        addOwnedWidget<QPushButton>(*monologueLayout, QStringLiteral("Browse"));
+    m_browseCaptureFolderButton->setObjectName(
+        QStringLiteral("LiveMicBrowseCaptureFolderButton"));
+    monologueLayout->addWidget(m_browseCaptureFolderButton, 1, 2);
+    m_openCaptureFolderButton =
+        addOwnedWidget<QPushButton>(*monologueLayout, QStringLiteral("Open in Explorer"));
+    m_openCaptureFolderButton->setObjectName(
+        QStringLiteral("LiveMicOpenCaptureFolderButton"));
+    monologueLayout->addWidget(m_openCaptureFolderButton, 2, 1, 1, 2);
+    monologueGroup->setLayout(monologueLayout.release());
+    centerLayout->addWidget(monologueGroup.release());
+
+    QSettings settings;
+    auto captureFolder =
+        settings.value(QStringLiteral("capture/monologue_folder")).toString().trimmed();
+    if (captureFolder.isEmpty()) {
+        captureFolder =
+            QDir{QStandardPaths::writableLocation(QStandardPaths::MusicLocation)}
+                .filePath(QStringLiteral("Vox Studio Captures"));
+    }
+    m_captureFolderEdit->setText(QDir::toNativeSeparators(captureFolder));
+
     auto recentTakes = std::make_unique<TakeListWidget>(this);
     recentTakes->setObjectName(QStringLiteral("LiveMicRecentTakes"));
     recentTakes->setTitle(QStringLiteral("Recent Takes"));
@@ -558,6 +629,7 @@ LiveMicPanel::LiveMicPanel(QWidget* parent)
     m_modeCombo->setObjectName(QStringLiteral("LiveMicModeCombo"));
     m_modeCombo->addItem(QStringLiteral("Mic Check"));
     m_modeCombo->addItem(QStringLiteral("Performance"));
+    m_modeCombo->addItem(QStringLiteral("Monologue"));
     m_modeCombo->addItem(QStringLiteral("Local"));
     rightLayout->addWidget(m_modeCombo, 0, 1);
     rightLayout->addWidget(std::make_unique<QLabel>(QStringLiteral("Character")).release(), 1, 0);
@@ -684,6 +756,10 @@ LiveMicPanel::LiveMicPanel(QWidget* parent)
             &LiveMicPanel::cancelLocalRvcConversion);
     connect(m_manageRvcModelsButton, &QPushButton::clicked, this,
             &LiveMicPanel::openRvcModelManager);
+    connect(m_browseCaptureFolderButton, &QPushButton::clicked, this,
+            &LiveMicPanel::browseMonologueCaptureFolder);
+    connect(m_openCaptureFolderButton, &QPushButton::clicked, this,
+            &LiveMicPanel::revealMonologueCapture);
     connect(m_recentTakesWidget, &TakeListWidget::playTakeRequested, this,
             &LiveMicPanel::playTake);
     connect(m_recentTakesWidget, &TakeListWidget::starTakeRequested, this,
@@ -1018,7 +1094,9 @@ void LiveMicPanel::toggleVoiceChangerPower() {
     }
 
     if (!currentVoiceId().empty()) {
-        m_modeCombo->setCurrentText(QStringLiteral("Performance"));
+        if (selectedMode != QStringLiteral("Monologue")) {
+            m_modeCombo->setCurrentText(QStringLiteral("Performance"));
+        }
         setHearSelfChecked(true);
         toggleCloudConversion();
         updateTransportState();
@@ -1071,10 +1149,20 @@ void LiveMicPanel::updateVoiceHud() {
     if (m_selectedEngineLabel != nullptr) {
         const auto engineText =
             mode == QStringLiteral("Local") ? QStringLiteral("Local RVC engine")
+            : mode == QStringLiteral("Monologue")
+                ? QStringLiteral("VoxCPM2 HQ monologue capture")
             : mode == QStringLiteral("Performance")
                 ? QStringLiteral("VoxCPM2 HQ (matches your delivery after each pause)")
                 : QStringLiteral("Direct microphone monitor");
         m_selectedEngineLabel->setText(engineText);
+    }
+    if (m_monologueCaptureGroup != nullptr) {
+        m_monologueCaptureGroup->setVisible(mode == QStringLiteral("Monologue"));
+    }
+    if (m_cloudButton != nullptr && !m_cloudActive) {
+        m_cloudButton->setText(mode == QStringLiteral("Monologue")
+                                   ? QStringLiteral("Record Monologue")
+                                   : QStringLiteral("Record Performance"));
     }
     if (m_outputRouteLabel != nullptr) {
         const auto monitorRoute =
@@ -1247,7 +1335,8 @@ void LiveMicPanel::toggleCloudConversion() {
 
     if (m_cloudActive) {
         m_cloudActive = false;
-        m_cloudButton->setText(QStringLiteral("Record Performance"));
+        m_cloudButton->setText(m_cloudLongTake ? QStringLiteral("Record Monologue")
+                                               : QStringLiteral("Record Performance"));
         m_cancelCloudButton->setEnabled(false);
         setProcessorCloudCapture(false, Qt::BlockingQueuedConnection);
         const bool keepLiveInput =
@@ -1258,9 +1347,17 @@ void LiveMicPanel::toggleCloudConversion() {
             stopAudioProcessor(Qt::BlockingQueuedConnection);
             m_capture.stop();
         }
-        setStatusText(QStringLiteral("Finishing the last VoxCPM2 character phrase."));
+        setStatusText(m_cloudLongTake
+                          ? QStringLiteral("Rendering the complete monologue capture.")
+                          : QStringLiteral("Finishing the last VoxCPM2 character phrase."));
         updateTransportState();
-        saveCloudRecordingIfReady();
+        QTimer::singleShot(0, this, [this]() {
+            if (m_cloudLongTake) {
+                prepareMonologueTranscripts();
+            }
+            startNextCloudChunk();
+            saveCloudRecordingIfReady();
+        });
         return;
     }
 
@@ -1283,28 +1380,64 @@ void LiveMicPanel::toggleCloudConversion() {
 
     m_cloudCancelFlag = std::make_shared<std::atomic_bool>(false);
     m_pendingCloudChunks.clear();
+    m_pendingCloudTranscripts.clear();
     m_recordedCloudPcm.clear();
     ++m_cloudPlaybackGeneration;
     m_cloudPlaybackGuardActive = false;
     m_cloudOutputSampleRate = 24000;
     m_cloudSeconds = 0.0;
+    m_cloudVoiceId = voiceId;
+    m_cloudLongTake =
+        m_modeCombo != nullptr && m_modeCombo->currentText() == QStringLiteral("Monologue");
+    m_cloudConversionFailed = false;
+    if (m_cloudLongTake) {
+        auto captureName = m_captureNameEdit == nullptr
+                               ? QString{}
+                               : m_captureNameEdit->text().trimmed();
+        if (captureName.isEmpty()) {
+            captureName = QStringLiteral("Monologue");
+            m_captureNameEdit->setText(captureName);
+        }
+        auto captureFolder = m_captureFolderEdit == nullptr
+                                 ? QString{}
+                                 : m_captureFolderEdit->text().trimmed();
+        if (captureFolder.isEmpty()) {
+            captureFolder =
+                QDir{QStandardPaths::writableLocation(QStandardPaths::MusicLocation)}
+                    .filePath(QStringLiteral("Vox Studio Captures"));
+            m_captureFolderEdit->setText(QDir::toNativeSeparators(captureFolder));
+        }
+        m_activeCaptureName = captureName;
+        m_activeCaptureFolder =
+            std::filesystem::path{QDir::fromNativeSeparators(captureFolder).toStdWString()};
+        QSettings settings;
+        settings.setValue(QStringLiteral("capture/monologue_folder"), captureFolder);
+    }
     m_costLabel->setText(QStringLiteral("Character audio: 0.0 s"));
     m_cloudActive = true;
     setHearSelfChecked(true);
-    m_cloudButton->setText(QStringLiteral("Stop & Save"));
+    m_cloudButton->setText(m_cloudLongTake ? QStringLiteral("Stop & Render")
+                                           : QStringLiteral("Stop & Save"));
     m_cancelCloudButton->setEnabled(true);
-    m_modeCombo->setCurrentText(QStringLiteral("Performance"));
+    if (!m_cloudLongTake) {
+        m_modeCombo->setCurrentText(QStringLiteral("Performance"));
+    }
     const bool liveInput = m_liveInputButton != nullptr && m_liveInputButton->isChecked();
     m_capture.setMonitorEnabled(liveInput);
     setProcessorPassthrough(liveInput, Qt::BlockingQueuedConnection);
     setProcessorCloudCapturePaused(false, Qt::BlockingQueuedConnection);
     setProcessorCloudCapture(true, Qt::BlockingQueuedConnection);
-    setStatusText(
-        liveInput
-            ? QStringLiteral(
-                  "VoxCPM2 is active. Live input is on; the character plays after each pause.")
-            : QStringLiteral(
-                  "VoxCPM2 is active. Speak naturally; the character plays after each pause."));
+    if (m_cloudLongTake) {
+        setStatusText(QStringLiteral(
+            "Monologue capture is recording. Character playback begins after you stop."));
+    } else {
+        setStatusText(
+            liveInput
+                ? QStringLiteral(
+                      "VoxCPM2 is active. Live input is on; the character plays after each pause.")
+                : QStringLiteral(
+                      "VoxCPM2 is active. Speak naturally; the character plays after each pause."));
+    }
     updateTransportState();
 }
 
@@ -1316,10 +1449,17 @@ void LiveMicPanel::cancelCloudConversion() {
     ++m_cloudPlaybackGeneration;
     m_cloudPlaybackGuardActive = false;
     m_pendingCloudChunks.clear();
+    m_pendingCloudTranscripts.clear();
     m_recordedCloudPcm.clear();
+    m_cloudVoiceId.clear();
+    m_cloudLongTake = false;
+    m_cloudConversionFailed = false;
     m_audioEngine.clear();
     m_broadcastAudioEngine.clear();
-    m_cloudButton->setText(QStringLiteral("Record Performance"));
+    m_cloudButton->setText(
+        m_modeCombo != nullptr && m_modeCombo->currentText() == QStringLiteral("Monologue")
+            ? QStringLiteral("Record Monologue")
+            : QStringLiteral("Record Performance"));
     m_cancelCloudButton->setEnabled(false);
     if (m_audioThread.isRunning()) {
         setProcessorCloudCapturePaused(false, Qt::BlockingQueuedConnection);
@@ -1536,6 +1676,44 @@ void LiveMicPanel::openRvcModelManager() {
     refreshRvcModels();
 }
 
+void LiveMicPanel::browseMonologueCaptureFolder() {
+    const auto initialFolder =
+        m_captureFolderEdit == nullptr ? QString{} : m_captureFolderEdit->text().trimmed();
+    const auto folder = QFileDialog::getExistingDirectory(
+        this,
+        QStringLiteral("Choose Monologue Capture Folder"),
+        QDir::fromNativeSeparators(initialFolder));
+    if (folder.isEmpty()) {
+        return;
+    }
+    m_captureFolderEdit->setText(QDir::toNativeSeparators(folder));
+    QSettings settings;
+    settings.setValue(QStringLiteral("capture/monologue_folder"), folder);
+}
+
+void LiveMicPanel::revealMonologueCapture() {
+    if (!m_lastMonologueCapturePath.empty() &&
+        std::filesystem::exists(m_lastMonologueCapturePath)) {
+        const auto path = QString::fromStdWString(m_lastMonologueCapturePath.wstring());
+        if (QProcess::startDetached(QStringLiteral("explorer.exe"),
+                                    {QStringLiteral("/select,"),
+                                     QDir::toNativeSeparators(path)})) {
+            setStatusText(QStringLiteral("Opened the monologue capture in File Explorer."));
+            return;
+        }
+    }
+
+    const auto folder =
+        m_captureFolderEdit == nullptr ? QString{} : m_captureFolderEdit->text().trimmed();
+    if (folder.isEmpty() ||
+        !QProcess::startDetached(QStringLiteral("explorer.exe"),
+                                 {QDir::toNativeSeparators(folder)})) {
+        setStatusText(QStringLiteral("Choose a valid monologue capture folder first."));
+        return;
+    }
+    setStatusText(QStringLiteral("Opened the monologue capture folder."));
+}
+
 void LiveMicPanel::updateGain(const int value) {
     m_capture.setGain(static_cast<float>(value) / 100.0F);
 }
@@ -1555,11 +1733,16 @@ void LiveMicPanel::enqueueCloudChunk(QByteArray chunk) {
     m_cloudSeconds += static_cast<double>(chunk.size()) /
                       static_cast<double>(kCloudInputSampleRate * 2);
     m_pendingCloudChunks.push_back(std::move(chunk));
+    m_pendingCloudTranscripts.emplace_back();
     m_costLabel->setText(
-        QStringLiteral("Character audio: %1 s | %2 waiting")
+        QStringLiteral("%1: %2 s | %3 section(s)")
+            .arg(m_cloudLongTake ? QStringLiteral("Monologue")
+                                 : QStringLiteral("Character audio"))
             .arg(m_cloudSeconds, 0, 'f', 1)
             .arg(static_cast<int>(m_pendingCloudChunks.size())));
-    startNextCloudChunk();
+    if (!m_cloudLongTake || !m_cloudActive) {
+        startNextCloudChunk();
+    }
 }
 
 void LiveMicPanel::enqueueLocalRvcChunk(QByteArray chunk) {
@@ -1586,9 +1769,10 @@ void LiveMicPanel::finishCloudConversion() {
     }
 
     if (!result.success) {
+        m_cloudConversionFailed = m_cloudConversionFailed || m_cloudLongTake;
         setStatusText(result.message);
     } else {
-        if (m_recordTakeCheck->isChecked()) {
+        if (m_recordTakeCheck->isChecked() || m_cloudLongTake) {
             m_recordedCloudPcm.append(result.convertedPcmBytes);
         }
         m_cloudOutputSampleRate = result.sampleRate;
@@ -1598,7 +1782,8 @@ void LiveMicPanel::finishCloudConversion() {
                                 .arg(result.message, result.playbackWarning));
     }
 
-    finishCloudPlaybackGuard(result.success ? result.playbackDurationMs : 0);
+    finishCloudPlaybackGuard(
+        result.success && !m_cloudLongTake ? result.playbackDurationMs : 0);
 }
 
 void LiveMicPanel::finishLocalRvcConversion() {
@@ -1728,6 +1913,28 @@ void LiveMicPanel::setProcessorLocalRvcCapture(const bool enabled,
         connectionType);
 }
 
+void LiveMicPanel::prepareMonologueTranscripts() {
+    if (!m_cloudLongTake || m_pendingCloudChunks.empty()) {
+        return;
+    }
+    const auto script = m_lineIdEdit == nullptr
+                            ? std::string{}
+                            : m_lineIdEdit->text().trimmed().toStdString();
+    if (script.empty()) {
+        return;
+    }
+
+    std::vector<std::size_t> weights;
+    weights.reserve(m_pendingCloudChunks.size());
+    for (const auto& chunk : m_pendingCloudChunks) {
+        weights.push_back(static_cast<std::size_t>(chunk.size()));
+    }
+    auto transcripts = core::splitTextByWeights(script, weights);
+    m_pendingCloudTranscripts.assign(
+        std::make_move_iterator(transcripts.begin()),
+        std::make_move_iterator(transcripts.end()));
+}
+
 void LiveMicPanel::startNextCloudChunk() {
     if (m_cloudWatcher->isRunning() || m_cloudPlaybackGuardActive ||
         m_pendingCloudChunks.empty()) {
@@ -1736,31 +1943,41 @@ void LiveMicPanel::startNextCloudChunk() {
     }
     if (m_cloudCancelFlag != nullptr && m_cloudCancelFlag->load(std::memory_order_acquire)) {
         m_pendingCloudChunks.clear();
+        m_pendingCloudTranscripts.clear();
         return;
     }
 
-    const auto voiceId = currentVoiceId();
+    const auto voiceId = m_cloudVoiceId.empty() ? currentVoiceId() : m_cloudVoiceId;
     if (voiceId.empty()) {
         m_pendingCloudChunks.clear();
+        m_pendingCloudTranscripts.clear();
         setStatusText(QStringLiteral("Select a target voice first."));
         return;
     }
 
     auto chunk = std::move(m_pendingCloudChunks.front());
     m_pendingCloudChunks.pop_front();
+    auto transcript = std::string{};
+    if (!m_pendingCloudTranscripts.empty()) {
+        transcript = std::move(m_pendingCloudTranscripts.front());
+        m_pendingCloudTranscripts.pop_front();
+    }
+    if (!m_cloudLongTake && transcript.empty() && m_lineIdEdit != nullptr) {
+        transcript = m_lineIdEdit->text().trimmed().toStdString();
+    }
     m_cloudPlaybackGuardActive = true;
     ++m_cloudPlaybackGeneration;
-    setProcessorCloudCapturePaused(true, Qt::BlockingQueuedConnection);
+    if (!m_cloudLongTake && m_cloudActive) {
+        setProcessorCloudCapturePaused(true, Qt::BlockingQueuedConnection);
+    }
     m_costLabel->setText(
         QStringLiteral("Character audio: %1 s | %2 waiting")
             .arg(m_cloudSeconds, 0, 'f', 1)
             .arg(static_cast<int>(m_pendingCloudChunks.size())));
-    const auto playbackTargets = currentPlaybackTargets();
+    const auto playbackTargets =
+        m_cloudLongTake ? PlaybackTargets{} : currentPlaybackTargets();
     auto cancelFlag = m_cloudCancelFlag;
     const auto endpoint = m_voxCpmSidecar.status().endpoint;
-    auto transcript = m_lineIdEdit == nullptr
-                          ? std::string{}
-                          : m_lineIdEdit->text().trimmed().toStdString();
     m_cloudWatcher->setFuture(
         QtConcurrent::run([endpoint,
                            voiceId,
@@ -1830,17 +2047,22 @@ void LiveMicPanel::startNextLocalRvcChunk() {
 }
 
 void LiveMicPanel::saveCloudRecordingIfReady() {
-    if (m_cloudActive || m_cloudWatcher->isRunning() || !m_pendingCloudChunks.empty() ||
-        m_recordedCloudPcm.isEmpty()) {
+    if (m_cloudActive || m_cloudWatcher->isRunning() || !m_pendingCloudChunks.empty()) {
         return;
     }
-    if (!m_recordTakeCheck->isChecked()) {
-        m_recordedCloudPcm.clear();
+    if (m_recordedCloudPcm.isEmpty()) {
+        m_cloudVoiceId.clear();
+        m_cloudLongTake = false;
+        m_cloudConversionFailed = false;
         return;
     }
-    if (!m_project.has_value() || m_recordingLineId.empty()) {
-        setStatusText(QStringLiteral("VoxCPM2 finished. The take was not saved."));
+    if (m_cloudLongTake && m_cloudConversionFailed) {
+        setStatusText(QStringLiteral(
+            "Monologue rendering failed; no incomplete capture was saved."));
         m_recordedCloudPcm.clear();
+        m_cloudVoiceId.clear();
+        m_cloudLongTake = false;
+        m_cloudConversionFailed = false;
         return;
     }
 
@@ -1852,6 +2074,52 @@ void LiveMicPanel::saveCloudRecordingIfReady() {
     if (!audio) {
         setStatusText(QString::fromStdString(audio.error().message));
         m_recordedCloudPcm.clear();
+        m_cloudVoiceId.clear();
+        m_cloudLongTake = false;
+        m_cloudConversionFailed = false;
+        return;
+    }
+
+    if (m_cloudLongTake) {
+        QString playbackWarning;
+        const auto playbackQueued =
+            queuePcmForTargets(currentPlaybackTargets(),
+                               bytes,
+                               m_cloudOutputSampleRate,
+                               kCloudOutputChannels,
+                               playbackWarning);
+        (void)playbackQueued;
+        if (!playbackWarning.isEmpty()) {
+            setStatusText(QStringLiteral("Monologue playback: %1").arg(playbackWarning));
+        }
+    }
+
+    QString captureMessage;
+    if (m_cloudLongTake && !saveMonologueCapture(audio.value(), captureMessage)) {
+        m_recordedCloudPcm.clear();
+        m_cloudVoiceId.clear();
+        m_cloudLongTake = false;
+        m_cloudConversionFailed = false;
+        return;
+    }
+    if (!m_recordTakeCheck->isChecked()) {
+        m_recordedCloudPcm.clear();
+        m_cloudVoiceId.clear();
+        m_cloudLongTake = false;
+        m_cloudConversionFailed = false;
+        setStatusText(captureMessage.isEmpty()
+                          ? QStringLiteral("VoxCPM2 rendering finished.")
+                          : captureMessage);
+        return;
+    }
+    if (!m_project.has_value() || m_recordingLineId.empty()) {
+        setStatusText(captureMessage.isEmpty()
+                          ? QStringLiteral("VoxCPM2 finished. The project take was not saved.")
+                          : captureMessage);
+        m_recordedCloudPcm.clear();
+        m_cloudVoiceId.clear();
+        m_cloudLongTake = false;
+        m_cloudConversionFailed = false;
         return;
     }
 
@@ -1863,13 +2131,42 @@ void LiveMicPanel::saveCloudRecordingIfReady() {
     if (!saved) {
         setStatusText(QString::fromStdString(saved.error().message));
         m_recordedCloudPcm.clear();
+        m_cloudVoiceId.clear();
+        m_cloudLongTake = false;
+        m_cloudConversionFailed = false;
         return;
     }
 
     m_recordedCloudPcm.clear();
+    m_cloudVoiceId.clear();
+    m_cloudLongTake = false;
+    m_cloudConversionFailed = false;
     refreshRecentTakes();
-    setStatusText(
-        QStringLiteral("Saved changed-voice take for \"%1\".").arg(m_recordingLineText));
+    setStatusText(captureMessage.isEmpty()
+                      ? QStringLiteral("Saved changed-voice take for \"%1\".")
+                            .arg(m_recordingLineText)
+                      : QStringLiteral("%1 Project take saved.").arg(captureMessage));
+}
+
+bool LiveMicPanel::saveMonologueCapture(const audio::PcmAudioBuffer& audio,
+                                        QString& message) {
+    if (m_activeCaptureFolder.empty()) {
+        setStatusText(QStringLiteral("Choose a monologue capture folder first."));
+        return false;
+    }
+
+    const auto outputPath = uniqueCapturePath(m_activeCaptureFolder, m_activeCaptureName);
+    auto written = audio::writeWavFile(outputPath, audio);
+    if (!written) {
+        setStatusText(QString::fromStdString(written.error().message));
+        return false;
+    }
+
+    m_lastMonologueCapturePath = outputPath;
+    message =
+        QStringLiteral("Saved monologue capture \"%1\".")
+            .arg(QString::fromStdWString(outputPath.filename().wstring()));
+    return true;
 }
 
 void LiveMicPanel::saveLocalRvcRecordingIfReady() {

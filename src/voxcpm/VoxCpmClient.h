@@ -19,6 +19,7 @@ struct VoxCpmHttpResponse final {
     std::string delivery;
     std::string pronunciations;
     std::string adapter;
+    int sectionCount{1};
 };
 
 struct VoxCpmRenderRequest final {
@@ -41,6 +42,24 @@ struct VoxCpmRenderResult final {
     std::string adapter;
 };
 
+struct VoxCpmTextRequest final {
+    std::string voiceId;
+    std::string text;
+    std::string delivery{"natural"};
+};
+
+struct VoxCpmTextResult final {
+    std::vector<std::uint8_t> pcm16Audio;
+    std::string characterName;
+    int sampleRate{48000};
+    int channels{1};
+    int latencyMs{0};
+    std::string delivery;
+    std::string pronunciations;
+    std::string adapter;
+    int sectionCount{1};
+};
+
 struct VoxCpmHealth final {
     bool ok{false};
     bool cudaAvailable{false};
@@ -60,6 +79,8 @@ public:
 
     [[nodiscard]] virtual core::Expected<VoxCpmHttpResponse>
     postPerformance(const std::string& path, const VoxCpmRenderRequest& request) const = 0;
+    [[nodiscard]] virtual core::Expected<VoxCpmHttpResponse>
+    postText(const std::string& path, const VoxCpmTextRequest& request) const = 0;
 };
 
 class CprVoxCpmHttpTransport final : public IVoxCpmHttpTransport {
@@ -71,6 +92,8 @@ public:
 
     [[nodiscard]] core::Expected<VoxCpmHttpResponse>
     postPerformance(const std::string& path, const VoxCpmRenderRequest& request) const override;
+    [[nodiscard]] core::Expected<VoxCpmHttpResponse>
+    postText(const std::string& path, const VoxCpmTextRequest& request) const override;
 
 private:
     std::string m_baseUrl;
@@ -84,6 +107,8 @@ public:
     [[nodiscard]] core::Expected<VoxCpmHealth> health() const;
     [[nodiscard]] core::Expected<VoxCpmRenderResult>
     renderPerformance(const VoxCpmRenderRequest& request) const;
+    [[nodiscard]] core::Expected<VoxCpmTextResult>
+    renderText(const VoxCpmTextRequest& request) const;
 
 private:
     std::string m_endpoint;
@@ -92,5 +117,6 @@ private:
 
 [[nodiscard]] std::string voxCpmHealthPath();
 [[nodiscard]] std::string voxCpmRenderPath();
+[[nodiscard]] std::string voxCpmTextPath();
 
 } // namespace voxstudio::voxcpm
