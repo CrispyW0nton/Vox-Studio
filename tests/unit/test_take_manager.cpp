@@ -153,23 +153,22 @@ TEST_CASE("take manager exports selected takes as collision-safe MP3 files",
 
     const voxstudio::db::VoiceRepository voiceRepository;
     const voxstudio::db::VoiceRecord voice{
-        "voice_atton", "Atton", "ivc", "{}", "{}", "2026-01-01T00:00:00Z",
-        "2026-01-01T00:00:00Z"};
+        "voice_atton", "Atton", "ivc", "{}", "{}", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"};
     REQUIRE(voiceRepository.upsertVoice(projectRoot, voice).hasValue());
 
     const voxstudio::db::ScriptRepository scriptRepository;
-    auto line = scriptRepository.createPerformanceLine(
-        projectRoot, "Atton", "voice_atton", "Pure pazaak. The table is ours.");
+    auto line = scriptRepository.createPerformanceLine(projectRoot, "Atton", "voice_atton",
+                                                       "Pure pazaak. The table is ours.");
     REQUIRE(line.hasValue());
 
     voxstudio::core::TakeManager manager;
     REQUIRE(manager
-                .saveVoxCpmTextTake(projectRoot, line.value().id, "voice_atton",
-                                    sinePcm(), "sarcastic", "storytelling")
+                .saveVoxCpmTextTake(projectRoot, line.value().id, "voice_atton", sinePcm(),
+                                    "sarcastic", "storytelling")
                 .hasValue());
     REQUIRE(manager
-                .saveVoxCpmTextTake(projectRoot, line.value().id, "voice_atton",
-                                    sinePcm(), "natural", "standard")
+                .saveVoxCpmTextTake(projectRoot, line.value().id, "voice_atton", sinePcm(),
+                                    "natural", "standard")
                 .hasValue());
 
     const voxstudio::db::TakeRepository takeRepository;
@@ -363,6 +362,37 @@ TEST_CASE("take manager stores local RVC takes with model id", "[core][takes][rv
     REQUIRE(takes.value().size() == 1);
     CHECK(takes.value().front().source == "rvc_local");
     CHECK(takes.value().front().rvcModelId == "hero_rvc");
+}
+
+TEST_CASE("take manager stores Performance Mirror takes with character voice id",
+          "[core][takes][performance-mirror]") {
+    const TemporaryDirectory directory;
+    const auto projectRoot = directory.path() / "PerformanceMirrorTakes.vox";
+
+    const voxstudio::db::ProjectRepository projectRepository;
+    auto project = projectRepository.createProject(projectRoot, "PerformanceMirrorTakes");
+    REQUIRE(project.hasValue());
+
+    const voxstudio::db::VoiceRepository voiceRepository;
+    const voxstudio::db::VoiceRecord voice{
+        "voice_atton",         "Atton", "local", "{}", "{}", "2026-01-01T00:00:00Z",
+        "2026-01-01T00:00:00Z"};
+    REQUIRE(voiceRepository.upsertVoice(projectRoot, voice).hasValue());
+
+    const voxstudio::db::ScriptRepository scriptRepository;
+    auto line = scriptRepository.createPerformanceLine(projectRoot, "Atton", "voice_atton",
+                                                       "Live mirror test");
+    REQUIRE(line.hasValue());
+
+    voxstudio::core::TakeManager manager;
+    auto savedTake =
+        manager.savePerformanceMirrorTake(projectRoot, line.value().id, "voice_atton", sinePcm());
+
+    REQUIRE(savedTake.hasValue());
+    CHECK(savedTake.value().take.source == "performance_mirror");
+    CHECK(savedTake.value().take.voiceId == "voice_atton");
+    CHECK(savedTake.value().take.rvcModelId.empty());
+    CHECK(savedTake.value().take.metadataJson.find("\"engine\":\"seed_vc\"") != std::string::npos);
 }
 
 TEST_CASE("voice settings JSON round trips with defaults", "[core][takes]") {

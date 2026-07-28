@@ -47,6 +47,10 @@ public:
                                                      const audio::PcmAudioBuffer& audio) const;
 
     [[nodiscard]] Expected<SavedTake>
+    savePerformanceMirrorTake(const std::filesystem::path& projectRoot, const std::string& lineId,
+                              const std::string& voiceId, const audio::PcmAudioBuffer& audio) const;
+
+    [[nodiscard]] Expected<SavedTake>
     saveVoxCpmTextTake(const std::filesystem::path& projectRoot, const std::string& lineId,
                        const std::string& voiceId, const audio::PcmAudioBuffer& audio,
                        const std::string& delivery, const std::string& performanceMode = {}) const;

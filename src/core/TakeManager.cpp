@@ -86,8 +86,7 @@ preparedTakeAudio(const audio::PcmAudioBuffer& audio) {
     return std::ranges::none_of(path, [](const auto& part) { return part == ".."; });
 }
 
-[[nodiscard]] std::string safeExportName(std::string_view value,
-                                         const std::string_view fallback,
+[[nodiscard]] std::string safeExportName(std::string_view value, const std::string_view fallback,
                                          const std::size_t maximumLength) {
     std::string result;
     result.reserve(std::min(value.size(), maximumLength));
@@ -110,10 +109,9 @@ preparedTakeAudio(const audio::PcmAudioBuffer& audio) {
     return result.empty() ? std::string{fallback} : result;
 }
 
-[[nodiscard]] std::filesystem::path
-uniqueExportPath(const std::filesystem::path& destinationFolder,
-                 const db::TakeRecord& take,
-                 const std::size_t index) {
+[[nodiscard]] std::filesystem::path uniqueExportPath(const std::filesystem::path& destinationFolder,
+                                                     const db::TakeRecord& take,
+                                                     const std::size_t index) {
     const auto character = safeExportName(take.characterName, "Character", 32U);
     const auto line = safeExportName(take.lineText, "Take", 72U);
     const auto id = safeExportName(take.id, std::to_string(index + 1U), 20U);
@@ -224,6 +222,8 @@ Expected<SavedTake> saveVoiceTake(const db::TakeRepository& repository,
         metadata["engine"] = "elevenlabs_sts";
     } else if (source == "voxcpm2" || source == "voxcpm2_tts") {
         metadata["engine"] = "voxcpm2";
+    } else if (source == "performance_mirror") {
+        metadata["engine"] = "seed_vc";
     } else if (source == "rvc_local") {
         metadata["engine"] = "rvc_sidecar";
     } else {
@@ -281,6 +281,14 @@ Expected<SavedTake> TakeManager::saveVoxCpmTake(const std::filesystem::path& pro
                          defaultVoiceSettings(), "voxcpm2");
 }
 
+Expected<SavedTake>
+TakeManager::savePerformanceMirrorTake(const std::filesystem::path& projectRoot,
+                                       const std::string& lineId, const std::string& voiceId,
+                                       const audio::PcmAudioBuffer& audio) const {
+    return saveVoiceTake(m_repository, projectRoot, lineId, voiceId, {}, audio,
+                         defaultVoiceSettings(), "performance_mirror");
+}
+
 Expected<SavedTake> TakeManager::saveVoxCpmTextTake(const std::filesystem::path& projectRoot,
                                                     const std::string& lineId,
                                                     const std::string& voiceId,
@@ -333,8 +341,8 @@ TakeManager::exportTakesAsMp3(const std::filesystem::path& projectRoot,
         });
         if (extension == ".mp3") {
             std::error_code copyError;
-            std::filesystem::copy_file(sourcePath, outputPath,
-                                       std::filesystem::copy_options::none, copyError);
+            std::filesystem::copy_file(sourcePath, outputPath, std::filesystem::copy_options::none,
+                                       copyError);
             if (copyError) {
                 std::filesystem::remove(outputPath, copyError);
                 removeExportedFiles(exportedPaths);

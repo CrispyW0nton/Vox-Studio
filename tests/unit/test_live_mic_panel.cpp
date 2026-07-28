@@ -74,6 +74,8 @@ void LiveMicPanelTest::exposesLiveMicControlsAndLatencyProbe() {
     auto* modeCombo = panel.findChild<QComboBox*>(QStringLiteral("LiveMicModeCombo"));
     QVERIFY(modeCombo != nullptr);
     QCOMPARE(modeCombo->currentText(), QStringLiteral("Mic Check"));
+    QVERIFY(modeCombo->findText(QStringLiteral("Performance Mirror")) >= 0);
+    QVERIFY(modeCombo->findText(QStringLiteral("HQ Phrase")) >= 0);
     QVERIFY(modeCombo->findText(QStringLiteral("Monologue")) >= 0);
 
     auto* voiceCombo = panel.findChild<QComboBox*>(QStringLiteral("LiveMicVoiceCombo"));
@@ -100,8 +102,7 @@ void LiveMicPanelTest::exposesLiveMicControlsAndLatencyProbe() {
     QVERIFY(liveInputButton != nullptr);
     QVERIFY(!liveInputButton->isChecked());
     QCOMPARE(liveInputButton->text(), QStringLiteral("Live Input Off"));
-    auto* broadcastButton =
-        panel.findChild<QPushButton*>(QStringLiteral("LiveMicBroadcastButton"));
+    auto* broadcastButton = panel.findChild<QPushButton*>(QStringLiteral("LiveMicBroadcastButton"));
     QVERIFY(broadcastButton != nullptr);
     QVERIFY(broadcastButton->isCheckable());
     QVERIFY(!broadcastButton->isChecked());
@@ -110,8 +111,7 @@ void LiveMicPanelTest::exposesLiveMicControlsAndLatencyProbe() {
     QVERIFY(gainSlider != nullptr);
     QCOMPARE(gainSlider->value(), 100);
 
-    auto* voiceVolumeSlider =
-        panel.findChild<QSlider*>(QStringLiteral("LiveMicVoiceVolumeSlider"));
+    auto* voiceVolumeSlider = panel.findChild<QSlider*>(QStringLiteral("LiveMicVoiceVolumeSlider"));
     QVERIFY(voiceVolumeSlider != nullptr);
     QCOMPARE(voiceVolumeSlider->value(), 100);
 
@@ -135,8 +135,7 @@ void LiveMicPanelTest::exposesLiveMicControlsAndLatencyProbe() {
     QVERIFY(cloudButton != nullptr);
     QVERIFY(!cloudButton->isEnabled());
 
-    auto* cancelButton =
-        panel.findChild<QPushButton*>(QStringLiteral("LiveMicCancelCloudButton"));
+    auto* cancelButton = panel.findChild<QPushButton*>(QStringLiteral("LiveMicCancelCloudButton"));
     QVERIFY(cancelButton != nullptr);
     QVERIFY(!cancelButton->isEnabled());
 
@@ -166,22 +165,19 @@ void LiveMicPanelTest::exposesLiveMicControlsAndLatencyProbe() {
     QVERIFY(!monologueGroup->isVisible());
     modeCombo->setCurrentText(QStringLiteral("Monologue"));
     QVERIFY(monologueGroup->isVisible());
-    auto* captureName =
-        panel.findChild<QLineEdit*>(QStringLiteral("LiveMicCaptureNameEdit"));
+    auto* captureName = panel.findChild<QLineEdit*>(QStringLiteral("LiveMicCaptureNameEdit"));
     QVERIFY(captureName != nullptr);
-    auto* captureFolder =
-        panel.findChild<QLineEdit*>(QStringLiteral("LiveMicCaptureFolderEdit"));
+    auto* captureFolder = panel.findChild<QLineEdit*>(QStringLiteral("LiveMicCaptureFolderEdit"));
     QVERIFY(captureFolder != nullptr);
     QVERIFY(!captureFolder->text().isEmpty());
-    auto* openCapture = panel.findChild<QPushButton*>(
-        QStringLiteral("LiveMicOpenCaptureFolderButton"));
+    auto* openCapture =
+        panel.findChild<QPushButton*>(QStringLiteral("LiveMicOpenCaptureFolderButton"));
     QVERIFY(openCapture != nullptr);
 
     auto* recentTakes = panel.findChild<QListWidget*>(QStringLiteral("TakeList"));
     QVERIFY(recentTakes != nullptr);
     QCOMPARE(recentTakes->count(), 0);
-    auto* revealTakeButton =
-        panel.findChild<QPushButton*>(QStringLiteral("TakeRevealButton"));
+    auto* revealTakeButton = panel.findChild<QPushButton*>(QStringLiteral("TakeRevealButton"));
     QVERIFY(revealTakeButton != nullptr);
     QVERIFY(!revealTakeButton->isEnabled());
 
@@ -189,8 +185,7 @@ void LiveMicPanelTest::exposesLiveMicControlsAndLatencyProbe() {
     QVERIFY(costLabel != nullptr);
     QVERIFY(costLabel->text().contains(QStringLiteral("Character audio")));
 
-    auto* selectedVoice =
-        panel.findChild<QLabel*>(QStringLiteral("LiveMicSelectedVoiceName"));
+    auto* selectedVoice = panel.findChild<QLabel*>(QStringLiteral("LiveMicSelectedVoiceName"));
     QVERIFY(selectedVoice != nullptr);
     QVERIFY(selectedVoice->text().contains(QStringLiteral("No voice")));
 
@@ -209,8 +204,8 @@ void LiveMicPanelTest::enablesCloudConversionWhenProjectHasCachedVoice() {
 
     const voxstudio::db::VoiceRepository voiceRepository;
     const voxstudio::db::VoiceRecord voice{
-        "voice_live", "Live Character", "ivc", "{}", "{}", "2026-01-01T00:00:00Z",
-        "2026-01-01T00:00:00Z"};
+        "voice_live",           "Live Character",      "ivc", "{}", "{}",
+        "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"};
     auto voiceSaved = voiceRepository.upsertVoice(projectRoot, voice);
     QVERIFY(voiceSaved.hasValue());
 
@@ -224,8 +219,7 @@ void LiveMicPanelTest::enablesCloudConversionWhenProjectHasCachedVoice() {
     QVERIFY(voiceCombo->isEnabled());
     QCOMPARE(voiceCombo->currentData().toString(), QStringLiteral("voice_live"));
 
-    auto* selectedVoice =
-        panel.findChild<QLabel*>(QStringLiteral("LiveMicSelectedVoiceName"));
+    auto* selectedVoice = panel.findChild<QLabel*>(QStringLiteral("LiveMicSelectedVoiceName"));
     QVERIFY(selectedVoice != nullptr);
     QCOMPARE(selectedVoice->text(), QStringLiteral("Live Character"));
 
@@ -236,9 +230,23 @@ void LiveMicPanelTest::enablesCloudConversionWhenProjectHasCachedVoice() {
     auto* cloudButton = panel.findChild<QPushButton*>(QStringLiteral("LiveMicCloudButton"));
     QVERIFY(cloudButton != nullptr);
     QVERIFY(cloudButton->isEnabled());
-    QCOMPARE(cloudButton->text(), QStringLiteral("Record Performance"));
-    QCOMPARE(panel.findChild<QComboBox*>(QStringLiteral("LiveMicModeCombo"))->currentText(),
-             QStringLiteral("Performance"));
+    QCOMPARE(cloudButton->text(), QStringLiteral("Record HQ Phrase"));
+    auto* modeCombo = panel.findChild<QComboBox*>(QStringLiteral("LiveMicModeCombo"));
+    QCOMPARE(modeCombo->currentText(), QStringLiteral("Performance Mirror"));
+
+    auto* mirrorButton = panel.findChild<QPushButton*>(QStringLiteral("LiveMicLocalRvcButton"));
+    QVERIFY(mirrorButton != nullptr);
+    QVERIFY(mirrorButton->isVisible());
+    QVERIFY(mirrorButton->isEnabled());
+    QCOMPARE(mirrorButton->text(), QStringLiteral("Start Performance Mirror"));
+
+    auto* engineLabel = panel.findChild<QLabel*>(QStringLiteral("LiveMicSelectedEngineLabel"));
+    QVERIFY(engineLabel != nullptr);
+    QVERIFY(engineLabel->text().contains(QStringLiteral("Reference Mirror")));
+
+    auto* rvcModelCombo = panel.findChild<QComboBox*>(QStringLiteral("LiveMicRvcModelCombo"));
+    QVERIFY(rvcModelCombo != nullptr);
+    QVERIFY(!rvcModelCombo->isVisible());
 }
 
 QTEST_MAIN(LiveMicPanelTest)

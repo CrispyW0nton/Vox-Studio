@@ -28,6 +28,10 @@ def source_envelope_gain(
     return (source_rms / converted_rms) ** (1.0 - bounded_mix_rate)
 
 
+def should_gate_silence(source_rms: float, source_peak: float) -> bool:
+    return source_rms < 0.0015 and source_peak < 0.008
+
+
 def parse_args() -> argparse.Namespace:
     local_app_data = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData/Local"))
     parser = argparse.ArgumentParser(description="Vox Studio real-time RVC sidecar")
@@ -81,6 +85,7 @@ class RealtimeRvc:
         pth_path: Path,
         index_path: Path | None,
         pitch_shift: int,
+        previous_engine: RealtimeRvc | None = None,
         sample_rate: int = 48000,
     ) -> None:
         self.runtime = runtime
@@ -109,6 +114,7 @@ class RealtimeRvc:
             "" if index_path is None else str(index_path),
             self.index_rate,
             self.config,
+            None if previous_engine is None else previous_engine.rvc,
         )
         self._initialize_buffers()
         self._prewarm()
@@ -260,6 +266,8 @@ class RealtimeRvc:
             )
 
         samples = np.frombuffer(pcm16_audio, dtype="<i2").astype(np.float32) / 32768.0
+        source_rms = float(np.sqrt(np.mean(samples * samples) + 1.0e-9))
+        source_peak = float(np.max(np.abs(samples)))
         if original_samples < self.block_frame:
             samples = np.pad(samples, (0, self.block_frame - original_samples))
 
@@ -276,6 +284,9 @@ class RealtimeRvc:
         self.input_wav_res[-self.block_frame_16k - 160:] = self.resampler(
             resample_input
         )[160:]
+        if should_gate_silence(source_rms, source_peak):
+            self.sola_buffer.zero_()
+            return bytes(original_samples * 2)
 
         inferred = self.rvc.infer(
             self.input_wav_res,
@@ -434,6 +445,7 @@ class RvcService:
             pth_path,
             index_path,
             pitch_shift,
+            self.engine,
         )
 
     def _load_runtime(self, rvc_root: Path) -> None:

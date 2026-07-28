@@ -128,6 +128,8 @@ set(VOXSTUDIO_CORE_SOURCES
     src/net/elevenlabs/VoicesApi.h
     src/platform/win/AppPaths.cpp
     src/platform/win/AppPaths.h
+    src/performance_mirror/PerformanceMirrorSidecar.cpp
+    src/performance_mirror/PerformanceMirrorSidecar.h
     src/rvc/F0Extractor.cpp
     src/rvc/F0Extractor.h
     src/rvc/HubertEncoder.cpp
@@ -263,6 +265,15 @@ if(WIN32)
         COMMENT "Deploying VoxCPM2 sidecar for VoxStudio"
         VERBATIM
     )
+    add_custom_command(
+        TARGET VoxStudio
+        POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_CURRENT_SOURCE_DIR}/third_party/performance_mirror_sidecar"
+                "$<TARGET_FILE_DIR:VoxStudio>/performance_mirror_sidecar"
+        COMMENT "Deploying Performance Mirror sidecar for VoxStudio"
+        VERBATIM
+    )
 endif()
 
 set_target_properties(
@@ -283,6 +294,7 @@ if(BUILD_TESTING)
         tests/unit/test_live_audio.cpp
         tests/unit/test_speech_phrase_buffer.cpp
         tests/unit/test_onnx_rvc_engine.cpp
+        tests/unit/test_performance_mirror_sidecar.cpp
         tests/unit/test_project_repository.cpp
         tests/unit/test_rvc_client.cpp
         tests/unit/test_rvc_model_registry.cpp
@@ -450,6 +462,16 @@ if(BUILD_TESTING)
             NAME VoxStudioRvcSidecarTests
             COMMAND ${Python3_EXECUTABLE}
                     "${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/test_rvc_sidecar.py"
+        )
+        add_test(
+            NAME VoxStudioPerformanceMirrorSidecarTests
+            COMMAND ${Python3_EXECUTABLE}
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/test_performance_mirror_sidecar.py"
+        )
+        add_test(
+            NAME VoxStudioCharacterRvcTrainingToolTests
+            COMMAND ${Python3_EXECUTABLE}
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/test_train_character_rvc.py"
         )
         add_test(
             NAME VoxStudioVoxCpmDeliveryTests

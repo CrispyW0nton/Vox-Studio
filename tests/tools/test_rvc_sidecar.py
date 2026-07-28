@@ -1,7 +1,9 @@
 import importlib.util
+import json
 import math
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -75,6 +77,44 @@ class RvcSidecarProtocolTests(unittest.TestCase):
         self.assertAlmostEqual(
             1.0,
             self.sidecar.source_envelope_gain(0.2, 0.1, 2.0),
+        )
+
+    def test_silence_gate_rejects_room_noise_but_not_speech(self):
+        self.assertTrue(self.sidecar.should_gate_silence(0.0008, 0.004))
+        self.assertFalse(self.sidecar.should_gate_silence(0.003, 0.02))
+
+    def test_model_switch_reuses_the_loaded_content_and_pitch_models(self):
+        with tempfile.TemporaryDirectory() as directory:
+            model_root = Path(directory)
+            model_dir = model_root / "voice_two"
+            model_dir.mkdir()
+            weights = model_dir / "voice.pth"
+            index = model_dir / "voice.index"
+            weights.write_bytes(b"weights")
+            index.write_bytes(b"index")
+            (model_dir / "model.json").write_text(
+                json.dumps(
+                    {
+                        "pth_path": str(weights),
+                        "index_path": str(index),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            service = self.sidecar.RvcService(model_root)
+            service.runtime = {"runtime": "ready"}
+            previous = object()
+            service.engine = previous
+
+            with mock.patch.object(self.sidecar, "RealtimeRvc") as realtime:
+                service._load_engine("voice_two", 0)
+
+        realtime.assert_called_once_with(
+            service.runtime,
+            weights.resolve(),
+            index.resolve(),
+            0,
+            previous,
         )
 
 

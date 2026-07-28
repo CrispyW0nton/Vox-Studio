@@ -56,11 +56,13 @@ TEST_CASE("RVC model registry imports, lists, and deletes models", "[rvc][models
     request.pthPath = sourcePth;
     request.indexPath = sourceIndex;
     request.sampleRate = 48000;
+    request.characterVoiceId = "voice_hero";
 
     auto imported = registry.importModel(request);
     REQUIRE(imported.hasValue());
     CHECK(imported.value().displayName == "Hero Voice");
     CHECK(imported.value().sampleRate == 48000);
+    CHECK(imported.value().characterVoiceId == "voice_hero");
     CHECK(std::filesystem::exists(imported.value().pthPath));
     CHECK(std::filesystem::exists(imported.value().indexPath));
 
@@ -68,6 +70,7 @@ TEST_CASE("RVC model registry imports, lists, and deletes models", "[rvc][models
     REQUIRE(models.hasValue());
     REQUIRE(models.value().size() == 1);
     CHECK(models.value().front().id == imported.value().id);
+    CHECK(models.value().front().characterVoiceId == "voice_hero");
 
     auto deleted = registry.deleteModel(imported.value().id);
     REQUIRE(deleted.hasValue());

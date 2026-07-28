@@ -2,6 +2,7 @@
   "name": "Vox Studio Real-Time RVC Sidecar",
   "upstream": "https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI",
   "pinned_commit": "4338f12",
+  "adapter_revision": 2,
   "launcher": "launch_rvc_sidecar.cmd",
   "server": "vox_rvc_server.py",
   "notes": "Uses the locally installed official RVC runtime and user-imported model artifacts."

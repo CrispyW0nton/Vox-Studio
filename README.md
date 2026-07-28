@@ -5,12 +5,14 @@ Native Windows AI voice acting studio for indie game developers.
 Vox Studio is a C++20/Qt desktop app for producing game dialogue: project
 management, script import, voice library tools, ElevenLabs integration,
 VoxCPM2 character performance rendering, take management, dialogue sequencing,
-and local RVC voice conversion.
+Performance Mirror live voice conversion, and imported RVC voice conversion.
 
 > Current status: early test build. The app can be built and launched locally,
-> the unit/Qt test suite is active, and Performance mode runs locally through
-> VoxCPM2. A self-contained signed installer, auto-updater, and release
-> packaging are still future work.
+> the unit/Qt test suite is active, Performance Mirror prefers locally trained
+> character RVC checkpoints with Seed-VC as a reference fallback, and HQ
+> phrase/monologue rendering runs locally through VoxCPM2.
+> A self-contained signed installer, auto-updater, and release packaging are
+> still future work.
 
 ## What It Does
 
@@ -20,8 +22,11 @@ and local RVC voice conversion.
 - Manages voices, character assignments, takes, and dialogue timelines.
 - Uses local VoxCPM2 character adapters to keep a selected voice stable while
   applying mic-derived timing, emphasis, and emotional controls.
-- Provides local emotional TTS, phrase-live and monologue VoxCPM2 capture,
-  live microphone, and local RVC UI paths.
+- Provides waveform-level Performance Mirror monitoring that follows the
+  performer's live timing, pauses, energy, and pitch movement while using a
+  character-trained local identity model when one is installed.
+- Provides local emotional TTS, HQ phrase and monologue VoxCPM2 capture,
+  live microphone, and imported RVC UI paths.
 - Includes native ONNX RVC plumbing for future in-process inference validation.
 
 ## Requirements
@@ -84,6 +89,8 @@ Important subfolders:
 - `onnxruntime\` - optional `onnxruntime.dll` runtime location.
 - `rvc_onnx_models\` - native ONNX RVC model bundles.
 - `engines\voxcpm2\` - isolated VoxCPM2 Python/GPU runtime and model cache.
+- `engines\seed-vc\` - isolated official Seed-VC runtime for Performance Mirror.
+- `performance_mirror_sidecar\` - lightweight local audio bridge and setup tool.
 - `voxcpm_profiles\` - local character identity references and profile metadata.
 - `voxcpm_training\` - prepared 16 kHz manifests and local LoRA checkpoints.
 - `voxcpm_sidecar\` - phrase-live transcription and rendering service.
@@ -108,18 +115,28 @@ identity and project assignment locally; ElevenLabs does not make its trained
 voice model weights exportable.
 
 In **Live Mic**, use **Mic Check** to verify the selected input and headphone
-output with your unchanged microphone. **Performance** captures one phrase at a
-time. Local Whisper transcription supplies the words. A smoothed delivery
+output with your unchanged microphone. **Performance Mirror** is the default
+live character mode: it converts the microphone waveform continuously, so the
+selected character follows the performer's timing, pauses, emphasis, energy,
+and pitch movement without transcription or phrase regeneration. Character
+slots switch the active local model directly. A character-trained RVC checkpoint
+is preferred because it holds identity substantially better than a short
+zero-shot reference. Characters without a trained checkpoint use Reference
+Mirror as a fallback, and the active engine is named beside the selected voice.
+**Hear Result** monitors only the converted character; **Live Input**
+independently adds the unchanged mic when explicitly enabled.
+
+**HQ Phrase** captures one phrase at a time and plays it after a natural pause.
+Local Whisper transcription supplies the words. A smoothed delivery
 detector classifies each phrase as calm, measured, neutral, emphatic, urgent,
 questioning, reflective, or sarcastic from its language, pace, dynamics,
 pauses, and pitch contour. For a trained local character, the selected LoRA
 adapter supplies a stable identity while those measurements produce detailed
 delivery controls.
 Legacy profiles fall back to matching a compatible in-character reference.
-Live Mic shows the detected delivery after each phrase. **Hear Result** is
+Live Mic shows the detected delivery after each HQ phrase. **Hear Result** is
 armed automatically and plays the character phrase through the selected
-headphones. **Live Input** is independent: turn it off to hear only the
-character result, or on to hear the unchanged mic while performing.
+headphones.
 
 Carth adds a character-specific palette derived from his game dialogue: dry
 wry skepticism, guarded distrust, contained vulnerability, understated warmth,
@@ -164,10 +181,44 @@ before synthesis. The renderer keeps one stable character identity across the
 story while varying pacing, emphasis, energy, and pauses only when the thought
 or dramatic situation changes.
 
-VoxCPM2 Performance mode is phrase-live rather than zero-latency waveform
-conversion: the result begins after a natural pause and local inference delay.
-The model remains loaded between phrases. Use **Local** RVC when immediate
-low-latency feedback matters more than character fidelity.
+VoxCPM2 HQ Phrase mode is phrase-live rather than waveform conversion: the
+result begins after a natural pause and local inference delay. The model remains
+loaded between phrases. Use **Performance Mirror** for live acting and
+**Imported RVC** for existing `.pth`/`.index` models.
+
+## Performance Mirror
+
+Performance Mirror is the user-facing live mode. For a character with an
+installed trained checkpoint, Vox Studio routes 240 ms microphone blocks through
+the official RVC real-time pipeline. This changes speaker identity while
+retaining the performed timing and pitch contour. Shared speech and pitch
+components stay loaded when character slots change. Low-level room noise is
+gated before playback, and converted audio can be sent simultaneously to
+headphones, a selected virtual microphone, and a saved MP3 project take.
+
+When no trained character model is installed, Reference Mirror listens on
+`http://127.0.0.1:18910` and runs the official
+[Seed-VC](https://github.com/Plachtaa/seed-vc) real-time tiny model in a separate
+local process. It uses 360 ms blocks and a profile reference. Use **Install
+Mirror Engine** once on a new PC to enable that fallback. The setup creates an
+isolated CUDA environment under `%LOCALAPPDATA%\VoxStudio\engines\seed-vc\`.
+Vox Studio does not redistribute upstream source, model weights, or character
+recordings.
+
+For a command-line setup:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File `
+  third_party\performance_mirror_sidecar\setup_performance_mirror.ps1
+```
+
+Run a file through the same streaming endpoint:
+
+```powershell
+& "$env:LOCALAPPDATA\VoxStudio\engines\seed-vc\.venv\Scripts\python.exe" `
+  tools\smoke_performance_mirror.py --source input.wav `
+  --voice-id YOUR_VOICE_ID --output mirror-test.wav
+```
 
 ## VoxCPM2 Profiles
 
@@ -228,21 +279,43 @@ powershell -ExecutionPolicy Bypass -File tools\install_voxcpm_runtime.ps1
 
 ## RVC Status
 
-There are two local RVC modes in the UI:
+There are two ways RVC is selected in the UI:
 
-- **Sidecar** starts the Vox Studio real-time bridge on
-  `http://127.0.0.1:18888`, talks to `/health` and `/convert_chunk`, and runs
-  imported `.pth` plus `.index` models through the official RVC real-time
-  pipeline. Audio is processed in stateful 250 ms blocks with RMVPE pitch
-  extraction and SOLA crossfading.
-- **Native ONNX** loads `onnxruntime.dll` dynamically and expects model bundles
-  under `%LOCALAPPDATA%\VoxStudio\rvc_onnx_models\<model_id>\`.
+- **Performance Mirror** automatically selects the trained model assigned to
+  the current character.
+- **Imported RVC** lets the performer select an installed model directly.
+
+Both use the **Sidecar** runtime by default. It starts the Vox Studio real-time
+bridge on `http://127.0.0.1:18888`, talks to `/health` and `/convert_chunk`, and
+runs imported `.pth` plus `.index` models through the official RVC real-time
+pipeline. Audio is processed in stateful 240 ms blocks with RMVPE pitch
+extraction and SOLA crossfading.
+
+The optional **Native ONNX** runtime loads `onnxruntime.dll` dynamically and
+expects model bundles under
+`%LOCALAPPDATA%\VoxStudio\rvc_onnx_models\<model_id>\`.
 
 The sidecar expects the official RVC runtime under
 `%LOCALAPPDATA%\VoxStudio\training\RVC-WebUI\`. Model weights and indexes remain
 user-owned runtime artifacts under `%LOCALAPPDATA%\VoxStudio\rvc_models\`; they
 are not committed to this repository. ONNX Runtime DLLs and `.onnx` graphs are
 also external runtime artifacts.
+
+To train and install a character checkpoint from the locally selected,
+licensed dialogue recorded in an existing VoxCPM profile:
+
+```powershell
+& "$env:LOCALAPPDATA\VoxStudio\training\RVC-WebUI\.venv\Scripts\python.exe" `
+  tools\train_character_rvc.py `
+  --voice-id <voice-id> `
+  --experiment <training-name> `
+  --model-id <model-id> `
+  --display-name <display-name>
+```
+
+The tool runs preprocessing, RMVPE and HuBERT extraction, RVC v2 training, and
+index generation directly. It then writes a model manifest with the matching
+character voice ID, allowing Performance Mirror to discover it automatically.
 
 The older compatibility sidecar source remains under
 `tools/rvc_compat_sidecar/` for protocol-only tests. It passes audio through and
@@ -264,6 +337,7 @@ src/db/                SQLite repositories and migrations
 src/io/scripts/        script importers
 src/net/elevenlabs/    ElevenLabs REST/TTS/STS/voices clients
 src/platform/win/      Windows app paths and single-instance guard
+src/performance_mirror/ local Seed-VC sidecar process management
 src/rvc/               sidecar, model registry, native ONNX RVC plumbing
 src/secrets/           DPAPI secret storage
 src/ui/                Qt widgets and dialogs

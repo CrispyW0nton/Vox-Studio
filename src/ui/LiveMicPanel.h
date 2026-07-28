@@ -7,6 +7,7 @@
 #include "db/ScriptRepository.h"
 #include "db/TakeRepository.h"
 #include "db/VoiceRepository.h"
+#include "performance_mirror/PerformanceMirrorSidecar.h"
 #include "rvc/RvcModelRegistry.h"
 #include "rvc/RvcSidecar.h"
 #include "voxcpm/VoxCpmSidecar.h"
@@ -17,13 +18,14 @@
 #include <QThread>
 #include <QWidget>
 
-#include <atomic>
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <deque>
 #include <filesystem>
 #include <memory>
 #include <optional>
+#include <unordered_map>
 #include <vector>
 
 class QCheckBox;
@@ -63,6 +65,15 @@ struct LocalRvcConversionResult final {
     int latencyMs{0};
     int sampleRate{48000};
     int channels{1};
+    std::string targetId;
+};
+
+enum class DirectVoiceEngine {
+    None,
+    PerformanceMirror,
+    CharacterRvc,
+    RvcSidecar,
+    NativeRvc,
 };
 
 struct PlaybackTargets final {
@@ -89,6 +100,7 @@ private:
     void cancelCloudConversion();
     void toggleLocalRvcConversion();
     void cancelLocalRvcConversion();
+    void installPerformanceMirror();
     void openRvcModelManager();
     void browseMonologueCaptureFolder();
     void revealMonologueCapture();
@@ -115,6 +127,7 @@ private:
     void setProcessorPassthrough(bool enabled, Qt::ConnectionType connectionType);
     void setProcessorCloudCapture(bool enabled, Qt::ConnectionType connectionType);
     void setProcessorCloudCapturePaused(bool paused, Qt::ConnectionType connectionType);
+    void setProcessorLocalRvcBlockMs(int blockMs, Qt::ConnectionType connectionType);
     void setProcessorLocalRvcCapture(bool enabled, Qt::ConnectionType connectionType);
     void prepareMonologueTranscripts();
     void startNextCloudChunk();
@@ -127,15 +140,17 @@ private:
     void starTake(db::TakeRecord take);
     void revealTake(db::TakeRecord take);
     void deleteTake(db::TakeRecord take);
-    [[nodiscard]] bool saveMonologueCapture(const audio::PcmAudioBuffer& audio,
-                                             QString& message);
+    [[nodiscard]] bool saveMonologueCapture(const audio::PcmAudioBuffer& audio, QString& message);
     [[nodiscard]] bool ensureRecordingLine();
     [[nodiscard]] audio::CaptureConfig currentCaptureConfig() const;
     [[nodiscard]] std::string currentVoiceId() const;
     [[nodiscard]] std::string currentRvcModelId() const;
+    [[nodiscard]] std::string currentCharacterRvcModelId() const;
     [[nodiscard]] QString currentVoiceName() const;
     [[nodiscard]] QString currentRvcModelName() const;
     [[nodiscard]] int currentPitchShiftSemitones() const;
+    [[nodiscard]] bool performanceMirrorMode() const;
+    [[nodiscard]] bool importedRvcMode() const;
     [[nodiscard]] bool ensureCaptureRunning();
     [[nodiscard]] PlaybackTargets currentPlaybackTargets() noexcept;
 
@@ -146,6 +161,7 @@ private:
     db::ScriptRepository m_scriptRepository;
     db::TakeRepository m_takeRepository;
     db::VoiceRepository m_voiceRepository;
+    performance_mirror::PerformanceMirrorSidecar m_performanceMirrorSidecar;
     rvc::RvcModelRegistry m_rvcModelRegistry;
     rvc::RvcSidecar m_rvcSidecar;
     voxcpm::VoxCpmSidecar m_voxCpmSidecar;
@@ -166,6 +182,8 @@ private:
     std::string m_recordingLineVoiceId;
     std::string m_recordingRvcModelId;
     std::string m_cloudVoiceId;
+    std::string m_directVoiceId;
+    std::unordered_map<std::string, std::string> m_characterRvcModels;
     QString m_recordingLineText;
     QString m_activeCaptureName;
     std::filesystem::path m_activeCaptureFolder;
@@ -183,6 +201,10 @@ private:
     bool m_cloudLongTake{false};
     bool m_cloudConversionFailed{false};
     bool m_localRvcActive{false};
+    bool m_directHasSpeech{false};
+    bool m_restartDirectAfterCancel{false};
+    DirectVoiceEngine m_directVoiceEngine{DirectVoiceEngine::None};
+    int m_droppedDirectChunks{0};
     QComboBox* m_inputDeviceCombo{nullptr};
     QComboBox* m_outputDeviceCombo{nullptr};
     QComboBox* m_broadcastOutputDeviceCombo{nullptr};
@@ -202,6 +224,7 @@ private:
     QLabel* m_midValueLabel{nullptr};
     QLabel* m_trebleValueLabel{nullptr};
     QLabel* m_pitchValueLabel{nullptr};
+    QLabel* m_rvcModelLabel{nullptr};
     QGroupBox* m_monologueCaptureGroup{nullptr};
     QCheckBox* m_monitorCheck{nullptr};
     QCheckBox* m_recordTakeCheck{nullptr};
@@ -225,6 +248,7 @@ private:
     QPushButton* m_cancelCloudButton{nullptr};
     QPushButton* m_localRvcButton{nullptr};
     QPushButton* m_cancelLocalRvcButton{nullptr};
+    QPushButton* m_installMirrorButton{nullptr};
     QPushButton* m_manageRvcModelsButton{nullptr};
     QPushButton* m_browseCaptureFolderButton{nullptr};
     QPushButton* m_openCaptureFolderButton{nullptr};

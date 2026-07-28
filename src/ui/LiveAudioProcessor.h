@@ -26,6 +26,7 @@ public:
     void setPassthroughEnabled(bool enabled);
     void setCloudCaptureEnabled(bool enabled);
     void setCloudCapturePaused(bool paused);
+    void setLocalRvcBlockMs(int blockMs);
     void setLocalRvcCaptureEnabled(bool enabled);
     void flushCloudCapture();
     void flushLocalRvcCapture();
@@ -53,6 +54,7 @@ private:
     bool m_cloudCaptureEnabled{false};
     bool m_cloudCapturePaused{false};
     bool m_localRvcCaptureEnabled{false};
+    int m_localRvcBlockMs{240};
 };
 
 } // namespace voxstudio::ui

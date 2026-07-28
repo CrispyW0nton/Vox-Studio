@@ -16,25 +16,21 @@ constexpr int kMaxFramesPerTick = 16;
 constexpr int kCloudSampleRate = 16000;
 constexpr int kCloudSourceSampleRate = audio::kRealtimeSampleRate;
 constexpr int kCloudDownsampleRatio = kCloudSourceSampleRate / kCloudSampleRate;
-// The real-time RVC pipeline needs enough voiced context for pitch extraction
-// and SOLA crossfading. This matches the upstream RVC real-time default.
-constexpr int kLocalRvcFrameMs = 250;
-constexpr qsizetype kLocalRvcChunkBytes =
-    (audio::kRealtimeSampleRate * kLocalRvcFrameMs / 1000) * 2;
+[[nodiscard]] qsizetype directChunkBytes(const int blockMs) {
+    return (audio::kRealtimeSampleRate * blockMs / 1000) * 2;
+}
 
 [[nodiscard]] std::int16_t floatToPcm16(const float sample) noexcept {
     const auto clamped = std::clamp(sample, -1.0F, 1.0F);
     const auto scaled = static_cast<int>(std::lround(clamped * 32767.0F));
     return static_cast<std::int16_t>(
-        std::clamp(scaled,
-                   static_cast<int>(std::numeric_limits<std::int16_t>::min()),
+        std::clamp(scaled, static_cast<int>(std::numeric_limits<std::int16_t>::min()),
                    static_cast<int>(std::numeric_limits<std::int16_t>::max())));
 }
 
 } // namespace
 
-LiveAudioProcessor::LiveAudioProcessor(QObject* parent)
-    : QObject(parent) {}
+LiveAudioProcessor::LiveAudioProcessor(QObject* parent) : QObject(parent) {}
 
 LiveAudioProcessor::~LiveAudioProcessor() {
     stop();
@@ -85,12 +81,18 @@ void LiveAudioProcessor::setCloudCapturePaused(const bool paused) {
     m_cloudPhraseBuffer.reset();
 }
 
+void LiveAudioProcessor::setLocalRvcBlockMs(const int blockMs) {
+    m_localRvcBlockMs = std::clamp(blockMs, 100, 1000);
+    m_localRvcPcmBuffer.clear();
+    m_localRvcPcmBuffer.reserve(directChunkBytes(m_localRvcBlockMs));
+}
+
 void LiveAudioProcessor::setLocalRvcCaptureEnabled(const bool enabled) {
     if (!enabled) {
         flushLocalRvcCapture();
     } else {
         m_localRvcPcmBuffer.clear();
-        m_localRvcPcmBuffer.reserve(kLocalRvcChunkBytes);
+        m_localRvcPcmBuffer.reserve(directChunkBytes(m_localRvcBlockMs));
     }
     m_localRvcCaptureEnabled = enabled;
 }
@@ -98,9 +100,8 @@ void LiveAudioProcessor::setLocalRvcCaptureEnabled(const bool enabled) {
 void LiveAudioProcessor::flushCloudCapture() {
     auto phrase = m_cloudPhraseBuffer.flush();
     if (phrase.has_value() && !phrase->empty()) {
-        emit cloudPcmChunkReady(
-            QByteArray{reinterpret_cast<const char*>(phrase->data()),
-                       static_cast<qsizetype>(phrase->size())});
+        emit cloudPcmChunkReady(QByteArray{reinterpret_cast<const char*>(phrase->data()),
+                                           static_cast<qsizetype>(phrase->size())});
     }
 }
 
@@ -148,8 +149,7 @@ void LiveAudioProcessor::processOnce() {
     emit meterUpdated(std::clamp(static_cast<int>(peakRms * 300.0F), 0, 100), speechActive);
 }
 
-void LiveAudioProcessor::appendCloudFrame(const audio::AudioFrame& frame,
-                                          const bool speechActive) {
+void LiveAudioProcessor::appendCloudFrame(const audio::AudioFrame& frame, const bool speechActive) {
     if (frame.sampleRate != kCloudSourceSampleRate || frame.channels != audio::kRealtimeChannels) {
         emit statusMessage(QStringLiteral("Cloud capture requires 48 kHz mono input."));
         return;
@@ -174,9 +174,8 @@ void LiveAudioProcessor::appendCloudFrame(const audio::AudioFrame& frame,
         std::span<const std::uint8_t>{first, static_cast<std::size_t>(downsampled.size())},
         speechActive);
     if (phrase.has_value() && !phrase->empty()) {
-        emit cloudPcmChunkReady(
-            QByteArray{reinterpret_cast<const char*>(phrase->data()),
-                       static_cast<qsizetype>(phrase->size())});
+        emit cloudPcmChunkReady(QByteArray{reinterpret_cast<const char*>(phrase->data()),
+                                           static_cast<qsizetype>(phrase->size())});
     }
 }
 
@@ -199,9 +198,10 @@ void LiveAudioProcessor::appendLocalRvcFrame(const audio::AudioFrame& frame) {
         m_localRvcPcmBuffer.append(bytes.data(), static_cast<qsizetype>(bytes.size()));
     }
 
-    while (m_localRvcPcmBuffer.size() >= kLocalRvcChunkBytes) {
-        emit localRvcPcmChunkReady(m_localRvcPcmBuffer.left(kLocalRvcChunkBytes));
-        m_localRvcPcmBuffer.remove(0, kLocalRvcChunkBytes);
+    const auto chunkBytes = directChunkBytes(m_localRvcBlockMs);
+    while (m_localRvcPcmBuffer.size() >= chunkBytes) {
+        emit localRvcPcmChunkReady(m_localRvcPcmBuffer.left(chunkBytes));
+        m_localRvcPcmBuffer.remove(0, chunkBytes);
     }
 }
 

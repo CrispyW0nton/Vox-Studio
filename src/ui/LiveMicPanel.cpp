@@ -22,14 +22,14 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
-#include <QMetaObject>
 #include <QMessageBox>
-#include <QProgressBar>
+#include <QMetaObject>
 #include <QProcess>
+#include <QProgressBar>
 #include <QPushButton>
+#include <QSettings>
 #include <QSignalBlocker>
 #include <QSizePolicy>
-#include <QSettings>
 #include <QSlider>
 #include <QSpinBox>
 #include <QStandardPaths>
@@ -47,6 +47,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -69,9 +70,7 @@ template <typename TWidget, typename... TArgs>
 
 [[nodiscard]] int defaultDeviceIndex(const std::vector<audio::AudioDeviceInfo>& devices) {
     const auto found = std::ranges::find_if(devices, &audio::AudioDeviceInfo::isDefault);
-    return found == devices.end()
-               ? -1
-               : static_cast<int>(std::distance(devices.begin(), found));
+    return found == devices.end() ? -1 : static_cast<int>(std::distance(devices.begin(), found));
 }
 
 [[nodiscard]] int comboDeviceIndex(const QComboBox* combo) {
@@ -81,8 +80,7 @@ template <typename TWidget, typename... TArgs>
     return combo->currentData().toInt();
 }
 
-[[nodiscard]] int preferredVirtualOutputIndex(
-    const std::vector<audio::AudioDeviceInfo>& devices) {
+[[nodiscard]] int preferredVirtualOutputIndex(const std::vector<audio::AudioDeviceInfo>& devices) {
     static constexpr std::array preferredNames{
         "voicemod virtual audio device",
         "cable input",
@@ -144,17 +142,15 @@ template <typename TWidget, typename... TArgs>
     return name.isEmpty() ? QStringLiteral("Monologue") : name;
 }
 
-[[nodiscard]] std::filesystem::path uniqueCapturePath(
-    const std::filesystem::path& folder,
-    const QString& captureName) {
+[[nodiscard]] std::filesystem::path uniqueCapturePath(const std::filesystem::path& folder,
+                                                      const QString& captureName) {
     const auto baseName = safeCaptureName(captureName);
     auto candidate =
         folder / std::filesystem::path{(baseName + QStringLiteral(".mp3")).toStdWString()};
     for (int suffix = 2; std::filesystem::exists(candidate); ++suffix) {
         candidate =
-            folder /
-            std::filesystem::path{
-                QStringLiteral("%1 (%2).mp3").arg(baseName).arg(suffix).toStdWString()};
+            folder / std::filesystem::path{
+                         QStringLiteral("%1 (%2).mp3").arg(baseName).arg(suffix).toStdWString()};
     }
     return candidate;
 }
@@ -176,8 +172,7 @@ void appendPlaybackWarning(QString& warning, const QString& route, const core::E
 
 [[nodiscard]] bool queuePcmForTargets(const PlaybackTargets& targets,
                                       const std::span<const std::uint8_t> bytes,
-                                      const int sampleRate,
-                                      const int channels,
+                                      const int sampleRate, const int channels,
                                       QString& playbackWarning) {
     bool queuedAny = false;
     const auto queue = [&](audio::AudioEngine* engine, const QString& route) {
@@ -209,12 +204,10 @@ void appendPlaybackWarning(QString& warning, const QString& route, const core::E
                       static_cast<qsizetype>(bytes.size())};
 }
 
-[[nodiscard]] CloudConversionResult convertCloudChunk(
-    const std::string& endpoint,
-    const std::string& voiceId,
-    const QByteArray& inputPcmBytes,
-    const std::string& transcript,
-    const std::shared_ptr<std::atomic_bool>& cancelFlag) {
+[[nodiscard]] CloudConversionResult
+convertCloudChunk(const std::string& endpoint, const std::string& voiceId,
+                  const QByteArray& inputPcmBytes, const std::string& transcript,
+                  const std::shared_ptr<std::atomic_bool>& cancelFlag) {
     if (cancelFlag != nullptr && cancelFlag->load(std::memory_order_acquire)) {
         return CloudConversionResult{false, QStringLiteral("VoxCPM2 rendering cancelled.")};
     }
@@ -232,28 +225,26 @@ void appendPlaybackWarning(QString& warning, const QString& route, const core::E
         if (cancelFlag != nullptr && cancelFlag->load(std::memory_order_acquire)) {
             return CloudConversionResult{false, QStringLiteral("VoxCPM2 rendering cancelled.")};
         }
-        return CloudConversionResult{
-            false, QString::fromStdString(rendered.error().message)};
+        return CloudConversionResult{false, QString::fromStdString(rendered.error().message)};
     }
 
-    const auto inputSeconds =
-        static_cast<double>(inputPcmBytes.size()) /
-        static_cast<double>(kCloudInputSampleRate * sizeof(std::int16_t));
+    const auto inputSeconds = static_cast<double>(inputPcmBytes.size()) /
+                              static_cast<double>(kCloudInputSampleRate * sizeof(std::int16_t));
     auto delivery = QString::fromStdString(rendered.value().delivery).trimmed();
     if (!delivery.isEmpty()) {
         delivery.front() = delivery.front().toUpper();
     }
     const auto trainedAdapter = rendered.value().adapter == "trained";
-    auto message = delivery.isEmpty()
-                       ? QStringLiteral("%1 character phrase ready in %2 ms.")
-                             .arg(trainedAdapter ? QStringLiteral("Trained")
-                                                 : QStringLiteral("VoxCPM2"))
-                             .arg(rendered.value().latencyMs)
-                       : QStringLiteral("%1 matched %2 delivery in %3 ms.")
-                             .arg(trainedAdapter ? QStringLiteral("Trained character")
-                                                 : QStringLiteral("Character"))
-                             .arg(delivery)
-                             .arg(rendered.value().latencyMs);
+    auto message =
+        delivery.isEmpty()
+            ? QStringLiteral("%1 character phrase ready in %2 ms.")
+                  .arg(trainedAdapter ? QStringLiteral("Trained") : QStringLiteral("VoxCPM2"))
+                  .arg(rendered.value().latencyMs)
+            : QStringLiteral("%1 matched %2 delivery in %3 ms.")
+                  .arg(trainedAdapter ? QStringLiteral("Trained character")
+                                      : QStringLiteral("Character"))
+                  .arg(delivery)
+                  .arg(rendered.value().latencyMs);
     if (!rendered.value().pronunciations.empty()) {
         message += QStringLiteral(" Pronunciation guide applied.");
     }
@@ -266,65 +257,50 @@ void appendPlaybackWarning(QString& warning, const QString& route, const core::E
                                  voiceId};
 }
 
-[[nodiscard]] LocalRvcConversionResult convertLocalRvcChunk(
-    const std::string& endpoint,
-    const std::string& modelId,
-    const QByteArray& inputPcmBytes,
-    const PlaybackTargets playbackTargets,
-    const std::shared_ptr<std::atomic_bool>& cancelFlag) {
+[[nodiscard]] LocalRvcConversionResult
+convertLocalRvcChunk(const std::string& endpoint, const std::string& targetId,
+                     const QString& engineName, const QByteArray& inputPcmBytes,
+                     const std::shared_ptr<std::atomic_bool>& cancelFlag) {
     if (cancelFlag != nullptr && cancelFlag->load(std::memory_order_acquire)) {
-        return LocalRvcConversionResult{false, QStringLiteral("Local RVC cancelled.")};
+        return LocalRvcConversionResult{false, QStringLiteral("%1 cancelled.").arg(engineName)};
     }
 
     rvc::RvcConvertRequest request;
-    request.modelId = modelId;
+    request.modelId = targetId;
     request.pcm16Audio = bytesFromByteArray(inputPcmBytes);
     request.sampleRate = kLocalRvcSampleRate;
     request.channels = kLocalRvcChannels;
 
-    QString playbackWarning;
-    const auto onChunk = [playbackTargets, &playbackWarning, cancelFlag](
-                             std::span<const std::uint8_t> chunk) {
-        if (cancelFlag != nullptr && cancelFlag->load(std::memory_order_acquire)) {
-            return false;
-        }
-        if (chunk.empty()) {
-            return true;
-        }
-
-        (void)queuePcmForTargets(playbackTargets,
-                                 chunk,
-                                 kLocalRvcSampleRate,
-                                 kLocalRvcChannels,
-                                 playbackWarning);
-        return true;
-    };
-
     const rvc::RvcClient client{endpoint};
-    auto converted = client.convertChunk(request, onChunk);
+    auto converted = client.convertChunk(request, {});
     if (!converted) {
         if (cancelFlag != nullptr && cancelFlag->load(std::memory_order_acquire)) {
-            return LocalRvcConversionResult{false, QStringLiteral("Local RVC cancelled.")};
+            return LocalRvcConversionResult{false, QStringLiteral("%1 cancelled.").arg(engineName)};
         }
         return LocalRvcConversionResult{false,
                                         QString::fromStdString(converted.error().message),
-                                        playbackWarning};
+                                        {},
+                                        {},
+                                        0,
+                                        kLocalRvcSampleRate,
+                                        kLocalRvcChannels,
+                                        targetId};
     }
 
     return LocalRvcConversionResult{true,
-                                    QStringLiteral("Local RVC chunk converted."),
-                                    playbackWarning,
+                                    QStringLiteral("%1 block converted.").arg(engineName),
+                                    {},
                                     byteArrayFromBytes(converted.value().pcm16Audio),
                                     converted.value().latencyMs,
                                     converted.value().sampleRate,
-                                    converted.value().channels};
+                                    converted.value().channels,
+                                    targetId};
 }
 
-[[nodiscard]] LocalRvcConversionResult convertNativeRvcChunk(
-    const std::shared_ptr<rvc::OnnxRvcEngine>& engine,
-    const QByteArray& inputPcmBytes,
-    const PlaybackTargets playbackTargets,
-    const std::shared_ptr<std::atomic_bool>& cancelFlag) {
+[[nodiscard]] LocalRvcConversionResult
+convertNativeRvcChunk(const std::shared_ptr<rvc::OnnxRvcEngine>& engine,
+                      const std::string& targetId, const QByteArray& inputPcmBytes,
+                      const std::shared_ptr<std::atomic_bool>& cancelFlag) {
     if (cancelFlag != nullptr && cancelFlag->load(std::memory_order_acquire)) {
         return LocalRvcConversionResult{false, QStringLiteral("Native RVC cancelled.")};
     }
@@ -343,32 +319,24 @@ void appendPlaybackWarning(QString& warning, const QString& route, const core::E
         if (cancelFlag != nullptr && cancelFlag->load(std::memory_order_acquire)) {
             return LocalRvcConversionResult{false, QStringLiteral("Native RVC cancelled.")};
         }
-        return LocalRvcConversionResult{false,
-                                        QString::fromStdString(converted.error().message)};
+        return LocalRvcConversionResult{false, QString::fromStdString(converted.error().message)};
     }
-
-    QString playbackWarning;
-    (void)queuePcmForTargets(playbackTargets,
-                             converted.value().pcm16Audio,
-                             converted.value().sampleRate,
-                             converted.value().channels,
-                             playbackWarning);
 
     return LocalRvcConversionResult{true,
                                     QStringLiteral("Native RVC chunk converted."),
-                                    playbackWarning,
+                                    {},
                                     byteArrayFromBytes(converted.value().pcm16Audio),
                                     converted.value().latencyMs,
                                     converted.value().sampleRate,
-                                    converted.value().channels};
+                                    converted.value().channels,
+                                    targetId};
 }
 
 } // namespace
 
 LiveMicPanel::LiveMicPanel(QWidget* parent)
-    : QWidget(parent)
-    , m_cloudWatcher(std::make_unique<QFutureWatcher<CloudConversionResult>>())
-    , m_localRvcWatcher(std::make_unique<QFutureWatcher<LocalRvcConversionResult>>()) {
+    : QWidget(parent), m_cloudWatcher(std::make_unique<QFutureWatcher<CloudConversionResult>>()),
+      m_localRvcWatcher(std::make_unique<QFutureWatcher<LocalRvcConversionResult>>()) {
     setObjectName(QStringLiteral("LiveMicPanel"));
     setStyleSheet(QStringLiteral(
         "#LiveMicPanel { background: #111517; color: #f4f7fb; }"
@@ -427,7 +395,8 @@ LiveMicPanel::LiveMicPanel(QWidget* parent)
     m_outputDeviceCombo = addOwnedWidget<QComboBox>(*deviceLayout);
     m_outputDeviceCombo->setObjectName(QStringLiteral("LiveMicOutputCombo"));
     deviceLayout->addWidget(m_outputDeviceCombo, 0, 3);
-    deviceLayout->addWidget(std::make_unique<QLabel>(QStringLiteral("Voice output")).release(), 1, 0);
+    deviceLayout->addWidget(std::make_unique<QLabel>(QStringLiteral("Voice output")).release(), 1,
+                            0);
     auto broadcastOutputCombo = std::make_unique<QComboBox>();
     m_broadcastOutputDeviceCombo = broadcastOutputCombo.get();
     m_broadcastOutputDeviceCombo->setObjectName(QStringLiteral("LiveMicBroadcastOutputCombo"));
@@ -480,8 +449,8 @@ LiveMicPanel::LiveMicPanel(QWidget* parent)
     m_selectedEngineLabel =
         addOwnedWidget<QLabel>(*transportTextLayout, QStringLiteral("VoxCPM2 performance"));
     m_selectedEngineLabel->setObjectName(QStringLiteral("LiveMicSelectedEngineLabel"));
-    m_outputRouteLabel = addOwnedWidget<QLabel>(*transportTextLayout,
-                                                QStringLiteral("Output: default"));
+    m_outputRouteLabel =
+        addOwnedWidget<QLabel>(*transportTextLayout, QStringLiteral("Output: default"));
     m_outputRouteLabel->setObjectName(QStringLiteral("LiveMicOutputRouteLabel"));
     m_outputRouteLabel->setWordWrap(true);
     transportLayout->addLayout(transportTextLayout.release(), 1);
@@ -516,8 +485,8 @@ LiveMicPanel::LiveMicPanel(QWidget* parent)
     for (std::size_t index = 0; index < m_quickVoiceButtons.size(); ++index) {
         auto* button = addOwnedWidget<QPushButton>(
             *quickSlotsLayout, QStringLiteral("%1").arg(static_cast<int>(index + 1U)));
-        button->setObjectName(QStringLiteral("LiveMicQuickVoiceSlot%1")
-                                  .arg(static_cast<int>(index + 1U)));
+        button->setObjectName(
+            QStringLiteral("LiveMicQuickVoiceSlot%1").arg(static_cast<int>(index + 1U)));
         button->setCheckable(true);
         button->setProperty("voiceIndex", static_cast<int>(index));
         button->setEnabled(false);
@@ -538,14 +507,15 @@ LiveMicPanel::LiveMicPanel(QWidget* parent)
     m_lineIdEdit->setPlaceholderText(QStringLiteral("Optional exact script"));
     advancedLayout->addWidget(m_lineIdEdit, 0, 1);
     m_cloudButton =
-        addOwnedWidget<QPushButton>(*advancedLayout, QStringLiteral("Record Performance"));
+        addOwnedWidget<QPushButton>(*advancedLayout, QStringLiteral("Record HQ Phrase"));
     m_cloudButton->setObjectName(QStringLiteral("LiveMicCloudButton"));
     advancedLayout->addWidget(m_cloudButton, 1, 0);
     m_cancelCloudButton = addOwnedWidget<QPushButton>(*advancedLayout, QStringLiteral("Cancel"));
     m_cancelCloudButton->setObjectName(QStringLiteral("LiveMicCancelCloudButton"));
     m_cancelCloudButton->setEnabled(false);
     advancedLayout->addWidget(m_cancelCloudButton, 1, 1);
-    m_localRvcButton = addOwnedWidget<QPushButton>(*advancedLayout, QStringLiteral("Start Local"));
+    m_localRvcButton =
+        addOwnedWidget<QPushButton>(*advancedLayout, QStringLiteral("Start Performance Mirror"));
     m_localRvcButton->setObjectName(QStringLiteral("LiveMicLocalRvcButton"));
     advancedLayout->addWidget(m_localRvcButton, 2, 0);
     m_cancelLocalRvcButton =
@@ -553,6 +523,10 @@ LiveMicPanel::LiveMicPanel(QWidget* parent)
     m_cancelLocalRvcButton->setObjectName(QStringLiteral("LiveMicCancelLocalRvcButton"));
     m_cancelLocalRvcButton->setEnabled(false);
     advancedLayout->addWidget(m_cancelLocalRvcButton, 2, 1);
+    m_installMirrorButton =
+        addOwnedWidget<QPushButton>(*advancedLayout, QStringLiteral("Install Mirror Engine"));
+    m_installMirrorButton->setObjectName(QStringLiteral("LiveMicInstallMirrorButton"));
+    advancedLayout->addWidget(m_installMirrorButton, 3, 0, 1, 2);
     advancedGroup->setLayout(advancedLayout.release());
     centerLayout->addWidget(advancedGroup.release());
 
@@ -560,26 +534,24 @@ LiveMicPanel::LiveMicPanel(QWidget* parent)
     m_monologueCaptureGroup = monologueGroup.get();
     m_monologueCaptureGroup->setObjectName(QStringLiteral("LiveMicMonologueCaptureGroup"));
     auto monologueLayout = std::make_unique<QGridLayout>();
-    monologueLayout->addWidget(
-        std::make_unique<QLabel>(QStringLiteral("Capture name")).release(), 0, 0);
+    monologueLayout->addWidget(std::make_unique<QLabel>(QStringLiteral("Capture name")).release(),
+                               0, 0);
     m_captureNameEdit = addOwnedWidget<QLineEdit>(*monologueLayout);
     m_captureNameEdit->setObjectName(QStringLiteral("LiveMicCaptureNameEdit"));
     m_captureNameEdit->setPlaceholderText(QStringLiteral("Story or scene name"));
     monologueLayout->addWidget(m_captureNameEdit, 0, 1, 1, 2);
-    monologueLayout->addWidget(
-        std::make_unique<QLabel>(QStringLiteral("Save folder")).release(), 1, 0);
+    monologueLayout->addWidget(std::make_unique<QLabel>(QStringLiteral("Save folder")).release(), 1,
+                               0);
     m_captureFolderEdit = addOwnedWidget<QLineEdit>(*monologueLayout);
     m_captureFolderEdit->setObjectName(QStringLiteral("LiveMicCaptureFolderEdit"));
     monologueLayout->addWidget(m_captureFolderEdit, 1, 1);
     m_browseCaptureFolderButton =
         addOwnedWidget<QPushButton>(*monologueLayout, QStringLiteral("Browse"));
-    m_browseCaptureFolderButton->setObjectName(
-        QStringLiteral("LiveMicBrowseCaptureFolderButton"));
+    m_browseCaptureFolderButton->setObjectName(QStringLiteral("LiveMicBrowseCaptureFolderButton"));
     monologueLayout->addWidget(m_browseCaptureFolderButton, 1, 2);
     m_openCaptureFolderButton =
         addOwnedWidget<QPushButton>(*monologueLayout, QStringLiteral("Open in Explorer"));
-    m_openCaptureFolderButton->setObjectName(
-        QStringLiteral("LiveMicOpenCaptureFolderButton"));
+    m_openCaptureFolderButton->setObjectName(QStringLiteral("LiveMicOpenCaptureFolderButton"));
     monologueLayout->addWidget(m_openCaptureFolderButton, 2, 1, 1, 2);
     monologueGroup->setLayout(monologueLayout.release());
     centerLayout->addWidget(monologueGroup.release());
@@ -589,8 +561,8 @@ LiveMicPanel::LiveMicPanel(QWidget* parent)
         settings.value(QStringLiteral("capture/monologue_folder")).toString().trimmed();
     if (captureFolder.isEmpty()) {
         captureFolder =
-            QDir{QStandardPaths::writableLocation(QStandardPaths::MusicLocation)}
-                .filePath(QStringLiteral("Vox Studio Captures"));
+            QDir{QStandardPaths::writableLocation(QStandardPaths::MusicLocation)}.filePath(
+                QStringLiteral("Vox Studio Captures"));
     }
     m_captureFolderEdit->setText(QDir::toNativeSeparators(captureFolder));
 
@@ -611,24 +583,27 @@ LiveMicPanel::LiveMicPanel(QWidget* parent)
     m_modeCombo = addOwnedWidget<QComboBox>(*rightLayout);
     m_modeCombo->setObjectName(QStringLiteral("LiveMicModeCombo"));
     m_modeCombo->addItem(QStringLiteral("Mic Check"));
-    m_modeCombo->addItem(QStringLiteral("Performance"));
+    m_modeCombo->addItem(QStringLiteral("Performance Mirror"));
+    m_modeCombo->addItem(QStringLiteral("HQ Phrase"));
     m_modeCombo->addItem(QStringLiteral("Monologue"));
-    m_modeCombo->addItem(QStringLiteral("Local"));
+    m_modeCombo->addItem(QStringLiteral("Imported RVC"));
     rightLayout->addWidget(m_modeCombo, 0, 1);
     rightLayout->addWidget(std::make_unique<QLabel>(QStringLiteral("Character")).release(), 1, 0);
     m_voiceCombo = addOwnedWidget<QComboBox>(*rightLayout);
     m_voiceCombo->setObjectName(QStringLiteral("LiveMicVoiceCombo"));
     rightLayout->addWidget(m_voiceCombo, 1, 1);
-    rightLayout->addWidget(std::make_unique<QLabel>(QStringLiteral("RVC Model")).release(), 2, 0);
+    m_rvcModelLabel = addOwnedWidget<QLabel>(*rightLayout, QStringLiteral("RVC Model"));
+    rightLayout->addWidget(m_rvcModelLabel, 2, 0);
     m_rvcModelCombo = addOwnedWidget<QComboBox>(*rightLayout);
     m_rvcModelCombo->setObjectName(QStringLiteral("LiveMicRvcModelCombo"));
     rightLayout->addWidget(m_rvcModelCombo, 2, 1);
-    m_manageRvcModelsButton = addOwnedWidget<QPushButton>(*rightLayout,
-                                                          QStringLiteral("RVC Models"));
+    m_manageRvcModelsButton =
+        addOwnedWidget<QPushButton>(*rightLayout, QStringLiteral("RVC Models"));
     m_manageRvcModelsButton->setObjectName(QStringLiteral("LiveMicManageRvcModelsButton"));
     rightLayout->addWidget(m_manageRvcModelsButton, 3, 0, 1, 2);
 
-    rightLayout->addWidget(std::make_unique<QLabel>(QStringLiteral("Voice volume")).release(), 4, 0);
+    rightLayout->addWidget(std::make_unique<QLabel>(QStringLiteral("Voice volume")).release(), 4,
+                           0);
     m_voiceVolumeSlider = addOwnedWidget<QSlider>(*rightLayout, Qt::Horizontal);
     m_voiceVolumeSlider->setObjectName(QStringLiteral("LiveMicVoiceVolumeSlider"));
     m_voiceVolumeSlider->setRange(0, 200);
@@ -692,34 +667,21 @@ LiveMicPanel::LiveMicPanel(QWidget* parent)
     connect(m_refreshButton, &QPushButton::clicked, this, &LiveMicPanel::refreshDevices);
     connect(m_monitorCheck, &QCheckBox::toggled, this, &LiveMicPanel::toggleMonitor);
     connect(m_monitorButton, &QPushButton::toggled, this, &LiveMicPanel::setHearSelfChecked);
-    connect(m_liveInputButton, &QPushButton::toggled, this,
-            &LiveMicPanel::setLiveInputChecked);
+    connect(m_liveInputButton, &QPushButton::toggled, this, &LiveMicPanel::setLiveInputChecked);
     connect(m_broadcastButton, &QPushButton::toggled, this, &LiveMicPanel::setBroadcastChecked);
     connect(m_voicePowerButton, &QPushButton::clicked, this,
             &LiveMicPanel::toggleVoiceChangerPower);
-    connect(m_inputDeviceCombo,
-            qOverload<int>(&QComboBox::currentIndexChanged),
-            this,
+    connect(m_inputDeviceCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
             &LiveMicPanel::updateOutputRoute);
-    connect(m_outputDeviceCombo,
-            qOverload<int>(&QComboBox::currentIndexChanged),
-            this,
+    connect(m_outputDeviceCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
             &LiveMicPanel::updateOutputRoute);
-    connect(m_broadcastOutputDeviceCombo,
-            qOverload<int>(&QComboBox::currentIndexChanged),
-            this,
+    connect(m_broadcastOutputDeviceCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
             &LiveMicPanel::updateOutputRoute);
-    connect(m_modeCombo,
-            qOverload<int>(&QComboBox::currentIndexChanged),
-            this,
+    connect(m_modeCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
             &LiveMicPanel::updateVoiceHud);
-    connect(m_voiceCombo,
-            qOverload<int>(&QComboBox::currentIndexChanged),
-            this,
+    connect(m_voiceCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
             &LiveMicPanel::handleVoiceSelectionChanged);
-    connect(m_rvcModelCombo,
-            qOverload<int>(&QComboBox::currentIndexChanged),
-            this,
+    connect(m_rvcModelCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
             &LiveMicPanel::updateVoiceHud);
     connect(m_gainSlider, &QSlider::valueChanged, this, &LiveMicPanel::updateGain);
     connect(m_voiceVolumeSlider, &QSlider::valueChanged, this, &LiveMicPanel::updateVoiceFx);
@@ -733,55 +695,40 @@ LiveMicPanel::LiveMicPanel(QWidget* parent)
     connect(m_latencyButton, &QPushButton::clicked, this, &LiveMicPanel::testLatency);
     connect(m_cloudButton, &QPushButton::clicked, this, &LiveMicPanel::toggleCloudConversion);
     connect(m_cancelCloudButton, &QPushButton::clicked, this, &LiveMicPanel::cancelCloudConversion);
-    connect(m_localRvcButton, &QPushButton::clicked, this,
-            &LiveMicPanel::toggleLocalRvcConversion);
+    connect(m_localRvcButton, &QPushButton::clicked, this, &LiveMicPanel::toggleLocalRvcConversion);
     connect(m_cancelLocalRvcButton, &QPushButton::clicked, this,
             &LiveMicPanel::cancelLocalRvcConversion);
+    connect(m_installMirrorButton, &QPushButton::clicked, this,
+            &LiveMicPanel::installPerformanceMirror);
     connect(m_manageRvcModelsButton, &QPushButton::clicked, this,
             &LiveMicPanel::openRvcModelManager);
     connect(m_browseCaptureFolderButton, &QPushButton::clicked, this,
             &LiveMicPanel::browseMonologueCaptureFolder);
     connect(m_openCaptureFolderButton, &QPushButton::clicked, this,
             &LiveMicPanel::revealMonologueCapture);
-    connect(m_recentTakesWidget, &TakeListWidget::playTakeRequested, this,
-            &LiveMicPanel::playTake);
-    connect(m_recentTakesWidget, &TakeListWidget::starTakeRequested, this,
-            &LiveMicPanel::starTake);
+    connect(m_recentTakesWidget, &TakeListWidget::playTakeRequested, this, &LiveMicPanel::playTake);
+    connect(m_recentTakesWidget, &TakeListWidget::starTakeRequested, this, &LiveMicPanel::starTake);
     connect(m_recentTakesWidget, &TakeListWidget::revealTakeRequested, this,
             &LiveMicPanel::revealTake);
     connect(m_recentTakesWidget, &TakeListWidget::deleteTakeRequested, this,
             &LiveMicPanel::deleteTake);
     connect(m_cloudWatcher.get(), &QFutureWatcher<CloudConversionResult>::finished, this,
             &LiveMicPanel::finishCloudConversion);
-    connect(m_localRvcWatcher.get(),
-            &QFutureWatcher<LocalRvcConversionResult>::finished,
-            this,
+    connect(m_localRvcWatcher.get(), &QFutureWatcher<LocalRvcConversionResult>::finished, this,
             &LiveMicPanel::finishLocalRvcConversion);
 
     auto processor = std::make_unique<LiveAudioProcessor>();
     m_audioProcessor = processor.get();
     m_audioProcessor->moveToThread(&m_audioThread);
     connect(&m_audioThread, &QThread::finished, m_audioProcessor, &QObject::deleteLater);
-    connect(m_audioProcessor,
-            &LiveAudioProcessor::meterUpdated,
-            this,
-            &LiveMicPanel::applyMeterUpdate,
-            Qt::QueuedConnection);
-    connect(m_audioProcessor,
-            &LiveAudioProcessor::statusMessage,
-            this,
-            &LiveMicPanel::setStatusText,
-            Qt::QueuedConnection);
-    connect(m_audioProcessor,
-            &LiveAudioProcessor::cloudPcmChunkReady,
-            this,
-            &LiveMicPanel::enqueueCloudChunk,
-            Qt::QueuedConnection);
-    connect(m_audioProcessor,
-            &LiveAudioProcessor::localRvcPcmChunkReady,
-            this,
-            &LiveMicPanel::enqueueLocalRvcChunk,
-            Qt::QueuedConnection);
+    connect(m_audioProcessor, &LiveAudioProcessor::meterUpdated, this,
+            &LiveMicPanel::applyMeterUpdate, Qt::QueuedConnection);
+    connect(m_audioProcessor, &LiveAudioProcessor::statusMessage, this,
+            &LiveMicPanel::setStatusText, Qt::QueuedConnection);
+    connect(m_audioProcessor, &LiveAudioProcessor::cloudPcmChunkReady, this,
+            &LiveMicPanel::enqueueCloudChunk, Qt::QueuedConnection);
+    connect(m_audioProcessor, &LiveAudioProcessor::localRvcPcmChunkReady, this,
+            &LiveMicPanel::enqueueLocalRvcChunk, Qt::QueuedConnection);
     processor.release();
     m_audioThread.setObjectName(QStringLiteral("LiveMicProcessor"));
     m_audioThread.start(QThread::HighPriority);
@@ -909,17 +856,13 @@ void LiveMicPanel::refreshVoices() {
     }
 
     auto voiceRecords = std::move(voices).value();
-    std::erase_if(voiceRecords, [](const db::VoiceRecord& voice) {
-        return voice.origin == "premade";
-    });
+    std::erase_if(voiceRecords,
+                  [](const db::VoiceRecord& voice) { return voice.origin == "premade"; });
     const auto priority = [](const db::VoiceRecord& voice) {
         static constexpr std::array<std::string_view, 7> preferredNames{
-            "Kreia",
-            "Xaria - Ancient Dathomir Witch Prototype",
-            "Atton",
-            "Carth",
-            "Bao-Dur",
-            "Alan Watts",
+            "Kreia",    "Xaria - Ancient Dathomir Witch Prototype",
+            "Atton",    "Carth",
+            "Bao-Dur",  "Alan Watts",
             "Carth HQ",
         };
         const auto found = std::ranges::find(preferredNames, std::string_view{voice.name});
@@ -927,8 +870,7 @@ void LiveMicPanel::refreshVoices() {
                    ? static_cast<int>(preferredNames.size())
                    : static_cast<int>(std::distance(preferredNames.begin(), found));
     };
-    std::stable_sort(voiceRecords.begin(),
-                     voiceRecords.end(),
+    std::stable_sort(voiceRecords.begin(), voiceRecords.end(),
                      [&priority](const auto& left, const auto& right) {
                          return priority(left) < priority(right);
                      });
@@ -944,9 +886,8 @@ void LiveMicPanel::refreshVoices() {
         if (voiceIndex < static_cast<int>(m_quickVoiceButtons.size())) {
             auto* button = m_quickVoiceButtons[static_cast<std::size_t>(voiceIndex)];
             button->setText(voiceBadgeText(name));
-            button->setToolTip(
-                QStringLiteral("%1\n%2 character voice")
-                    .arg(name, QString::fromStdString(voice.origin)));
+            button->setToolTip(QStringLiteral("%1\n%2 character voice")
+                                   .arg(name, QString::fromStdString(voice.origin)));
             button->setEnabled(true);
         }
         ++voiceIndex;
@@ -955,9 +896,8 @@ void LiveMicPanel::refreshVoices() {
     m_voiceCombo->setEnabled(hasVoices);
     m_cloudButton->setEnabled(hasVoices);
     if (hasVoices && m_modeCombo != nullptr &&
-        m_modeCombo->currentText() == QStringLiteral("Mic Check") &&
-        !m_capture.stats().running) {
-        m_modeCombo->setCurrentText(QStringLiteral("Performance"));
+        m_modeCombo->currentText() == QStringLiteral("Mic Check") && !m_capture.stats().running) {
+        m_modeCombo->setCurrentText(QStringLiteral("Performance Mirror"));
     }
     if (!hasVoices) {
         setStatusText(QStringLiteral("Sync or clone a voice before a character performance."));
@@ -967,21 +907,42 @@ void LiveMicPanel::refreshVoices() {
 
 void LiveMicPanel::refreshRvcModels() {
     m_rvcModelCombo->clear();
+    m_characterRvcModels.clear();
     auto models = m_rvcModelRegistry.listModels();
     if (!models) {
         m_rvcModelCombo->setEnabled(false);
-        m_localRvcButton->setEnabled(false);
         setStatusText(QString::fromStdString(models.error().message));
         return;
     }
 
+    std::unordered_set<std::string> installedModelIds;
     for (const auto& model : models.value()) {
+        installedModelIds.insert(model.id);
         m_rvcModelCombo->addItem(QString::fromStdString(model.displayName),
                                  QString::fromStdString(model.id));
+        if (!model.characterVoiceId.empty()) {
+            m_characterRvcModels[model.characterVoiceId] = model.id;
+        }
+    }
+    if (m_project.has_value()) {
+        auto characters = m_scriptRepository.listCharacters(m_project->rootPath());
+        if (characters) {
+            for (const auto& character : characters.value()) {
+                if (!character.voiceId.empty() &&
+                    installedModelIds.contains(character.rvcModelId)) {
+                    m_characterRvcModels[character.voiceId] = character.rvcModelId;
+                }
+            }
+        }
     }
     const bool hasModels = m_rvcModelCombo->count() > 0;
     m_rvcModelCombo->setEnabled(hasModels);
-    m_localRvcButton->setEnabled(hasModels);
+    m_localRvcButton->setEnabled((performanceMirrorMode() && !currentVoiceId().empty()) ||
+                                 (importedRvcMode() && hasModels));
+    if (m_installMirrorButton != nullptr) {
+        const auto status = m_performanceMirrorSidecar.status();
+        m_installMirrorButton->setVisible(!status.engineInstalled);
+    }
     updateVoiceHud();
 }
 
@@ -995,10 +956,8 @@ void LiveMicPanel::updateVoiceFx() {
     const auto mid = m_midSlider == nullptr ? 0 : m_midSlider->value();
     const auto treble = m_trebleSlider == nullptr ? 0 : m_trebleSlider->value();
     const auto pitch = currentPitchShiftSemitones();
-    const audio::OutputFxSettings settings{volume,
-                                           static_cast<float>(bass),
-                                           static_cast<float>(mid),
-                                           static_cast<float>(treble),
+    const audio::OutputFxSettings settings{volume, static_cast<float>(bass),
+                                           static_cast<float>(mid), static_cast<float>(treble),
                                            pitch};
     m_audioEngine.setOutputFxSettings(settings);
     m_broadcastAudioEngine.setOutputFxSettings(settings);
@@ -1069,25 +1028,37 @@ void LiveMicPanel::toggleVoiceChangerPower() {
         setHearSelfChecked(!m_capture.stats().running);
         return;
     }
-    if (selectedMode == QStringLiteral("Local") && !currentRvcModelId().empty()) {
+    if (selectedMode == QStringLiteral("Performance Mirror") && !currentVoiceId().empty()) {
+        setHearSelfChecked(true);
+        toggleLocalRvcConversion();
+        updateTransportState();
+        return;
+    }
+    if (selectedMode == QStringLiteral("Imported RVC") && !currentRvcModelId().empty()) {
         setHearSelfChecked(true);
         toggleLocalRvcConversion();
         updateTransportState();
         return;
     }
 
-    if (!currentVoiceId().empty()) {
-        if (selectedMode != QStringLiteral("Monologue")) {
-            m_modeCombo->setCurrentText(QStringLiteral("Performance"));
-        }
+    if (!currentVoiceId().empty() && (selectedMode == QStringLiteral("HQ Phrase") ||
+                                      selectedMode == QStringLiteral("Monologue"))) {
         setHearSelfChecked(true);
         toggleCloudConversion();
         updateTransportState();
         return;
     }
 
+    if (!currentVoiceId().empty()) {
+        m_modeCombo->setCurrentText(QStringLiteral("Performance Mirror"));
+        setHearSelfChecked(true);
+        toggleLocalRvcConversion();
+        updateTransportState();
+        return;
+    }
+
     if (!currentRvcModelId().empty()) {
-        m_modeCombo->setCurrentText(QStringLiteral("Local"));
+        m_modeCombo->setCurrentText(QStringLiteral("Imported RVC"));
         setHearSelfChecked(true);
         toggleLocalRvcConversion();
         updateTransportState();
@@ -1110,12 +1081,48 @@ void LiveMicPanel::selectQuickVoiceSlot() {
     }
 
     m_voiceCombo->setCurrentIndex(voiceIndex);
-    m_modeCombo->setCurrentText(QStringLiteral("Performance"));
+    m_modeCombo->setCurrentText(QStringLiteral("Performance Mirror"));
     updateVoiceHud();
 }
 
 void LiveMicPanel::handleVoiceSelectionChanged(int) {
     updateVoiceHud();
+    if (m_localRvcActive && (m_directVoiceEngine == DirectVoiceEngine::PerformanceMirror ||
+                             m_directVoiceEngine == DirectVoiceEngine::CharacterRvc)) {
+        const auto selectedVoiceId = currentVoiceId();
+        const auto characterModelId = currentCharacterRvcModelId();
+        const auto desiredEngine = characterModelId.empty() ? DirectVoiceEngine::PerformanceMirror
+                                                            : DirectVoiceEngine::CharacterRvc;
+        const auto desiredTargetId = characterModelId.empty() ? selectedVoiceId : characterModelId;
+        if (selectedVoiceId.empty() || desiredTargetId == m_directVoiceId) {
+            return;
+        }
+
+        if (desiredEngine != m_directVoiceEngine) {
+            const bool conversionRunning = m_localRvcWatcher->isRunning();
+            m_restartDirectAfterCancel = conversionRunning;
+            cancelLocalRvcConversion();
+            if (!conversionRunning) {
+                m_localRvcCancelFlag.reset();
+                toggleLocalRvcConversion();
+            }
+            return;
+        }
+
+        m_directVoiceId = desiredTargetId;
+        m_pendingLocalRvcChunks.clear();
+        m_recordedLocalRvcPcm.clear();
+        m_directHasSpeech = false;
+        m_recordingLineId.clear();
+        m_recordingLineVoiceId.clear();
+        m_recordingRvcModelId = characterModelId;
+        m_audioEngine.clear();
+        m_broadcastAudioEngine.clear();
+        (void)ensureRecordingLine();
+        setStatusText(QStringLiteral("%1 is selected. The next live block will use this character.")
+                          .arg(currentVoiceName()));
+        return;
+    }
     if (!m_cloudActive || m_cloudLongTake) {
         return;
     }
@@ -1140,8 +1147,7 @@ void LiveMicPanel::handleVoiceSelectionChanged(int) {
     }
 
     m_costLabel->setText(QStringLiteral("Character audio: 0.0 s"));
-    setStatusText(
-        QStringLiteral("%1 is active. Speak your next phrase.").arg(currentVoiceName()));
+    setStatusText(QStringLiteral("%1 is active. Speak your next phrase.").arg(currentVoiceName()));
 }
 
 void LiveMicPanel::updateVoiceHud() {
@@ -1150,7 +1156,7 @@ void LiveMicPanel::updateVoiceHud() {
     const auto voiceName = currentVoiceName();
     const auto rvcName = currentRvcModelName();
     const auto selectedName =
-        mode == QStringLiteral("Local") && !rvcName.isEmpty() ? rvcName : voiceName;
+        mode == QStringLiteral("Imported RVC") && !rvcName.isEmpty() ? rvcName : voiceName;
 
     if (m_selectedVoiceLabel != nullptr) {
         m_selectedVoiceLabel->setText(selectedName.isEmpty() ? QStringLiteral("No voice selected")
@@ -1160,11 +1166,17 @@ void LiveMicPanel::updateVoiceHud() {
         m_selectedVoiceBadge->setText(voiceBadgeText(selectedName));
     }
     if (m_selectedEngineLabel != nullptr) {
+        const bool hasCharacterModel = !currentCharacterRvcModelId().empty();
         const auto engineText =
-            mode == QStringLiteral("Local") ? QStringLiteral("Local RVC engine")
-            : mode == QStringLiteral("Monologue")
-                ? QStringLiteral("VoxCPM2 HQ monologue capture")
-            : mode == QStringLiteral("Performance")
+            mode == QStringLiteral("Performance Mirror")
+                ? hasCharacterModel
+                      ? QStringLiteral(
+                            "Character-trained live model: follows your timing, tone, and pauses")
+                      : QStringLiteral(
+                            "Reference Mirror fallback: character training is not installed")
+            : mode == QStringLiteral("Imported RVC") ? QStringLiteral("Imported RVC model")
+            : mode == QStringLiteral("Monologue") ? QStringLiteral("VoxCPM2 HQ monologue capture")
+            : mode == QStringLiteral("HQ Phrase")
                 ? QStringLiteral("VoxCPM2 HQ (matches your delivery after each pause)")
                 : QStringLiteral("Direct microphone monitor");
         m_selectedEngineLabel->setText(engineText);
@@ -1175,18 +1187,60 @@ void LiveMicPanel::updateVoiceHud() {
     if (m_cloudButton != nullptr && !m_cloudActive) {
         m_cloudButton->setText(mode == QStringLiteral("Monologue")
                                    ? QStringLiteral("Record Monologue")
-                                   : QStringLiteral("Record Performance"));
+                                   : QStringLiteral("Record HQ Phrase"));
+        m_cloudButton->setVisible(mode == QStringLiteral("HQ Phrase") ||
+                                  mode == QStringLiteral("Monologue"));
+        m_cloudButton->setEnabled(!currentVoiceId().empty());
+    }
+    if (m_cancelCloudButton != nullptr) {
+        m_cancelCloudButton->setVisible(mode == QStringLiteral("HQ Phrase") ||
+                                        mode == QStringLiteral("Monologue"));
+    }
+    const bool directMode =
+        mode == QStringLiteral("Performance Mirror") || mode == QStringLiteral("Imported RVC");
+    if (m_localRvcButton != nullptr) {
+        if (!m_localRvcActive) {
+            m_localRvcButton->setText(mode == QStringLiteral("Imported RVC")
+                                          ? QStringLiteral("Start Imported RVC")
+                                          : QStringLiteral("Start Performance Mirror"));
+        }
+        m_localRvcButton->setVisible(directMode);
+        m_localRvcButton->setEnabled(mode == QStringLiteral("Performance Mirror")
+                                         ? !currentVoiceId().empty()
+                                         : mode == QStringLiteral("Imported RVC") &&
+                                               !currentRvcModelId().empty());
+    }
+    if (m_cancelLocalRvcButton != nullptr) {
+        m_cancelLocalRvcButton->setText(mode == QStringLiteral("Performance Mirror")
+                                            ? QStringLiteral("Cancel Mirror")
+                                            : QStringLiteral("Cancel RVC"));
+        m_cancelLocalRvcButton->setVisible(directMode);
+    }
+    const bool showRvcModel = mode == QStringLiteral("Imported RVC");
+    if (m_rvcModelLabel != nullptr) {
+        m_rvcModelLabel->setVisible(showRvcModel);
+    }
+    if (m_rvcModelCombo != nullptr) {
+        m_rvcModelCombo->setVisible(showRvcModel);
+    }
+    if (m_manageRvcModelsButton != nullptr) {
+        m_manageRvcModelsButton->setVisible(showRvcModel);
+    }
+    if (m_installMirrorButton != nullptr) {
+        const auto mirrorStatus = m_performanceMirrorSidecar.status();
+        m_installMirrorButton->setVisible(mode == QStringLiteral("Performance Mirror") &&
+                                          currentCharacterRvcModelId().empty() &&
+                                          !mirrorStatus.engineInstalled);
     }
     if (m_outputRouteLabel != nullptr) {
         const auto monitorRoute =
             m_outputDeviceCombo != nullptr && m_outputDeviceCombo->currentIndex() >= 0
                 ? m_outputDeviceCombo->currentText()
                 : QStringLiteral("default");
-        const auto broadcastRoute =
-            m_broadcastOutputDeviceCombo != nullptr &&
-                    m_broadcastOutputDeviceCombo->currentIndex() >= 0
-                ? m_broadcastOutputDeviceCombo->currentText()
-                : QStringLiteral("none");
+        const auto broadcastRoute = m_broadcastOutputDeviceCombo != nullptr &&
+                                            m_broadcastOutputDeviceCombo->currentIndex() >= 0
+                                        ? m_broadcastOutputDeviceCombo->currentText()
+                                        : QStringLiteral("none");
         m_outputRouteLabel->setText(
             QStringLiteral("Monitor: %1 | Voice output: %2").arg(monitorRoute, broadcastRoute));
     }
@@ -1207,14 +1261,12 @@ void LiveMicPanel::updateTransportState() {
     if (m_voicePowerButton != nullptr) {
         const QSignalBlocker blocker{m_voicePowerButton};
         const bool micCheckMode =
-            m_modeCombo != nullptr &&
-            m_modeCombo->currentText() == QStringLiteral("Mic Check");
+            m_modeCombo != nullptr && m_modeCombo->currentText() == QStringLiteral("Mic Check");
         const bool microphoneCheckActive =
             micCheckMode && !m_cloudActive && !m_localRvcActive && m_capture.stats().running;
         const bool powerActive = m_cloudActive || m_localRvcActive || microphoneCheckActive;
         m_voicePowerButton->setChecked(powerActive);
-        m_voicePowerButton->setText(powerActive ? QStringLiteral("On")
-                                                 : QStringLiteral("Power"));
+        m_voicePowerButton->setText(powerActive ? QStringLiteral("On") : QStringLiteral("Power"));
     }
     if (m_liveInputButton != nullptr) {
         const QSignalBlocker blocker{m_liveInputButton};
@@ -1226,16 +1278,13 @@ void LiveMicPanel::updateTransportState() {
         const QSignalBlocker blocker{m_monitorButton};
         m_monitorButton->setChecked(m_monitorCheck->isChecked());
         const bool micCheckMode =
-            m_modeCombo != nullptr &&
-            m_modeCombo->currentText() == QStringLiteral("Mic Check");
+            m_modeCombo != nullptr && m_modeCombo->currentText() == QStringLiteral("Mic Check");
         if (micCheckMode) {
-            m_monitorButton->setText(m_monitorCheck->isChecked()
-                                         ? QStringLiteral("Mic Check On")
-                                         : QStringLiteral("Mic Check"));
+            m_monitorButton->setText(m_monitorCheck->isChecked() ? QStringLiteral("Mic Check On")
+                                                                 : QStringLiteral("Mic Check"));
         } else {
-            m_monitorButton->setText(m_monitorCheck->isChecked()
-                                         ? QStringLiteral("Hear Result On")
-                                         : QStringLiteral("Hear Result"));
+            m_monitorButton->setText(m_monitorCheck->isChecked() ? QStringLiteral("Hear Result On")
+                                                                 : QStringLiteral("Hear Result"));
         }
     }
     if (m_broadcastButton != nullptr) {
@@ -1268,8 +1317,7 @@ void LiveMicPanel::setHearSelfChecked(const bool enabled) {
     }
 
     const bool micCheckMode =
-        m_modeCombo != nullptr &&
-        m_modeCombo->currentText() == QStringLiteral("Mic Check");
+        m_modeCombo != nullptr && m_modeCombo->currentText() == QStringLiteral("Mic Check");
     if (micCheckMode) {
         toggleMonitor(enabled);
         return;
@@ -1290,12 +1338,13 @@ void LiveMicPanel::setLiveInputChecked(const bool enabled) {
     if (m_cloudActive || m_localRvcActive) {
         m_capture.setMonitorEnabled(enabled);
         setProcessorPassthrough(enabled, Qt::QueuedConnection);
-        setStatusText(enabled
-                          ? QStringLiteral("Live input monitor enabled; changed phrases remain audible.")
-                          : QStringLiteral("Live input monitor muted; changed phrases remain audible."));
+        setStatusText(
+            enabled ? QStringLiteral("Live input monitor enabled; changed phrases remain audible.")
+                    : QStringLiteral("Live input monitor muted; changed phrases remain audible."));
     } else {
-        setStatusText(enabled ? QStringLiteral("Live input monitor will stay on while recording.")
-                              : QStringLiteral("Live input monitor will stay muted while recording."));
+        setStatusText(enabled
+                          ? QStringLiteral("Live input monitor will stay on while recording.")
+                          : QStringLiteral("Live input monitor will stay muted while recording."));
     }
     updateTransportState();
 }
@@ -1335,25 +1384,25 @@ void LiveMicPanel::toggleMonitor(const bool enabled) {
     const bool passthrough = !m_cloudActive && !m_localRvcActive;
     m_capture.setMonitorEnabled(passthrough);
     setProcessorPassthrough(passthrough, Qt::QueuedConnection);
-    setStatusText(passthrough ? QStringLiteral("Microphone check active. Speak and watch the meter.")
-                              : QStringLiteral("Converted voice monitoring enabled."));
+    setStatusText(passthrough
+                      ? QStringLiteral("Microphone check active. Speak and watch the meter.")
+                      : QStringLiteral("Converted voice monitoring enabled."));
     updateTransportState();
 }
 
 void LiveMicPanel::toggleCloudConversion() {
     if (m_localRvcActive) {
-        setStatusText(QStringLiteral("Stop Local RVC before starting an HQ performance."));
+        setStatusText(QStringLiteral("Stop the live voice changer before starting an HQ capture."));
         return;
     }
 
     if (m_cloudActive) {
         m_cloudActive = false;
         m_cloudButton->setText(m_cloudLongTake ? QStringLiteral("Record Monologue")
-                                               : QStringLiteral("Record Performance"));
+                                               : QStringLiteral("Record HQ Phrase"));
         m_cancelCloudButton->setEnabled(false);
         setProcessorCloudCapture(false, Qt::BlockingQueuedConnection);
-        const bool keepLiveInput =
-            m_liveInputButton != nullptr && m_liveInputButton->isChecked();
+        const bool keepLiveInput = m_liveInputButton != nullptr && m_liveInputButton->isChecked();
         m_capture.setMonitorEnabled(keepLiveInput);
         setProcessorPassthrough(keepLiveInput, Qt::QueuedConnection);
         if (!keepLiveInput) {
@@ -1385,6 +1434,7 @@ void LiveMicPanel::toggleCloudConversion() {
     if (!ensureCaptureRunning()) {
         return;
     }
+    m_performanceMirrorSidecar.stop();
     auto sidecar = m_voxCpmSidecar.start();
     if (!sidecar) {
         setStatusText(QString::fromStdString(sidecar.error().message));
@@ -1404,20 +1454,18 @@ void LiveMicPanel::toggleCloudConversion() {
         m_modeCombo != nullptr && m_modeCombo->currentText() == QStringLiteral("Monologue");
     m_cloudConversionFailed = false;
     if (m_cloudLongTake) {
-        auto captureName = m_captureNameEdit == nullptr
-                               ? QString{}
-                               : m_captureNameEdit->text().trimmed();
+        auto captureName =
+            m_captureNameEdit == nullptr ? QString{} : m_captureNameEdit->text().trimmed();
         if (captureName.isEmpty()) {
             captureName = QStringLiteral("Monologue");
             m_captureNameEdit->setText(captureName);
         }
-        auto captureFolder = m_captureFolderEdit == nullptr
-                                 ? QString{}
-                                 : m_captureFolderEdit->text().trimmed();
+        auto captureFolder =
+            m_captureFolderEdit == nullptr ? QString{} : m_captureFolderEdit->text().trimmed();
         if (captureFolder.isEmpty()) {
             captureFolder =
-                QDir{QStandardPaths::writableLocation(QStandardPaths::MusicLocation)}
-                    .filePath(QStringLiteral("Vox Studio Captures"));
+                QDir{QStandardPaths::writableLocation(QStandardPaths::MusicLocation)}.filePath(
+                    QStringLiteral("Vox Studio Captures"));
             m_captureFolderEdit->setText(QDir::toNativeSeparators(captureFolder));
         }
         m_activeCaptureName = captureName;
@@ -1433,7 +1481,7 @@ void LiveMicPanel::toggleCloudConversion() {
                                            : QStringLiteral("Stop & Save"));
     m_cancelCloudButton->setEnabled(true);
     if (!m_cloudLongTake) {
-        m_modeCombo->setCurrentText(QStringLiteral("Performance"));
+        m_modeCombo->setCurrentText(QStringLiteral("HQ Phrase"));
     }
     const bool liveInput = m_liveInputButton != nullptr && m_liveInputButton->isChecked();
     m_capture.setMonitorEnabled(liveInput);
@@ -1469,18 +1517,17 @@ void LiveMicPanel::cancelCloudConversion() {
     m_cloudConversionFailed = false;
     m_audioEngine.clear();
     m_broadcastAudioEngine.clear();
-    m_cloudButton->setText(
-        m_modeCombo != nullptr && m_modeCombo->currentText() == QStringLiteral("Monologue")
-            ? QStringLiteral("Record Monologue")
-            : QStringLiteral("Record Performance"));
+    m_cloudButton->setText(m_modeCombo != nullptr &&
+                                   m_modeCombo->currentText() == QStringLiteral("Monologue")
+                               ? QStringLiteral("Record Monologue")
+                               : QStringLiteral("Record HQ Phrase"));
     m_cancelCloudButton->setEnabled(false);
     if (m_audioThread.isRunning()) {
         setProcessorCloudCapturePaused(false, Qt::BlockingQueuedConnection);
         setProcessorCloudCapture(false, Qt::BlockingQueuedConnection);
     }
     if (!m_localRvcActive) {
-        const bool keepLiveInput =
-            m_liveInputButton != nullptr && m_liveInputButton->isChecked();
+        const bool keepLiveInput = m_liveInputButton != nullptr && m_liveInputButton->isChecked();
         m_capture.setMonitorEnabled(keepLiveInput);
         setProcessorPassthrough(keepLiveInput, Qt::QueuedConnection);
         if (!keepLiveInput) {
@@ -1495,34 +1542,48 @@ void LiveMicPanel::cancelCloudConversion() {
 void LiveMicPanel::toggleLocalRvcConversion() {
     if (m_localRvcActive) {
         m_localRvcActive = false;
-        m_localRvcButton->setText(QStringLiteral("Start Local"));
         m_cancelLocalRvcButton->setEnabled(false);
         setProcessorLocalRvcCapture(false, Qt::BlockingQueuedConnection);
-        const bool keepLiveInput =
-            m_liveInputButton != nullptr && m_liveInputButton->isChecked();
+        const bool keepLiveInput = m_liveInputButton != nullptr && m_liveInputButton->isChecked();
         m_capture.setMonitorEnabled(keepLiveInput);
         setProcessorPassthrough(keepLiveInput, Qt::QueuedConnection);
         if (!keepLiveInput) {
             stopAudioProcessor(Qt::BlockingQueuedConnection);
             m_capture.stop();
         }
-        m_rvcSidecar.stop();
         if (m_pendingLocalRvcChunks.empty() && !m_localRvcWatcher->isRunning()) {
             m_nativeRvcEngine.reset();
         }
-        setStatusText(QStringLiteral("Finishing queued Local RVC conversion."));
+        setStatusText(m_directVoiceEngine == DirectVoiceEngine::PerformanceMirror
+                          ? QStringLiteral("Finishing the last mirrored voice block.")
+                          : QStringLiteral("Finishing queued RVC conversion."));
+        updateVoiceHud();
         updateTransportState();
         saveLocalRvcRecordingIfReady();
         return;
     }
 
     if (m_cloudActive) {
-        setStatusText(QStringLiteral("Stop Performance before starting Local RVC."));
+        setStatusText(QStringLiteral("Stop the HQ capture before starting the live voice."));
         return;
     }
 
-    const auto modelId = currentRvcModelId();
-    if (modelId.empty()) {
+    const bool mirrorMode = performanceMirrorMode();
+    if (!mirrorMode && !importedRvcMode()) {
+        setStatusText(QStringLiteral("Choose Performance Mirror or Imported RVC first."));
+        return;
+    }
+
+    const auto characterModelId = mirrorMode ? currentCharacterRvcModelId() : std::string{};
+    const bool useCharacterModel = !characterModelId.empty();
+    const auto targetId = useCharacterModel ? characterModelId
+                          : mirrorMode      ? currentVoiceId()
+                                            : currentRvcModelId();
+    if (targetId.empty() && mirrorMode) {
+        setStatusText(QStringLiteral("Select a character first."));
+        return;
+    }
+    if (targetId.empty()) {
         setStatusText(QStringLiteral("Import and select an RVC model first."));
         return;
     }
@@ -1530,97 +1591,132 @@ void LiveMicPanel::toggleLocalRvcConversion() {
         return;
     }
 
-    const QSettings settings;
-    const auto runtimeMode =
-        settings.value(QStringLiteral("rvc/runtime"), QStringLiteral("sidecar")).toString();
-    if (runtimeMode == QStringLiteral("native_onnx")) {
-        auto engine = std::make_shared<rvc::OnnxRvcEngine>();
-        auto runtime = engine->probeRuntime();
-        if (!runtime) {
-            setStatusText(QString::fromStdString(runtime.error().message));
-            return;
-        }
-        if (!runtime.value().available) {
-            setStatusText(QString::fromStdString(runtime.value().message));
-            return;
-        }
-
-        const auto bundleRoot = rvc::OnnxRvcEngine::defaultNativeModelRoot() / modelId;
-        auto bundle = engine->loadModelBundle(bundleRoot);
-        if (!bundle) {
-            setStatusText(QString::fromStdString(bundle.error().message));
+    if (mirrorMode && !useCharacterModel) {
+        m_voxCpmSidecar.stop();
+        m_nativeRvcEngine.reset();
+        auto started = m_performanceMirrorSidecar.start();
+        if (!started) {
+            const auto mirrorStatus = m_performanceMirrorSidecar.status();
+            if (m_installMirrorButton != nullptr) {
+                m_installMirrorButton->setVisible(!mirrorStatus.engineInstalled);
+            }
+            setStatusText(QString::fromStdString(started.error().message));
             return;
         }
 
-        auto configured = engine->configureModelBundle(std::move(bundle.value()));
-        if (!configured) {
-            setStatusText(QString::fromStdString(configured.error().message));
-            return;
-        }
-
-        auto description = engine->describeConfiguredModel();
-        if (!description) {
-            setStatusText(QString::fromStdString(description.error().message));
-            return;
-        }
-        auto pipeline = engine->describeConfiguredPipeline();
-        if (!pipeline) {
-            setStatusText(QString::fromStdString(pipeline.error().message));
-            return;
-        }
-        if (!ensureCaptureRunning()) {
-            return;
-        }
-
-        m_nativeRvcEngine = std::move(engine);
-        m_localRvcCancelFlag = std::make_shared<std::atomic_bool>(false);
-        m_pendingLocalRvcChunks.clear();
-        m_recordedLocalRvcPcm.clear();
-        m_localRvcSeconds = 0.0;
-        m_localRvcOutputSampleRate = description.value().bundle.sampleRate;
-        m_localRvcOutputChannels = kLocalRvcChannels;
-        m_costLabel->setText(QStringLiteral("Native audio: 0.0 s"));
-        m_localRvcActive = true;
-        m_localRvcButton->setText(QStringLiteral("Stop Local"));
-        m_cancelLocalRvcButton->setEnabled(true);
-        m_modeCombo->setCurrentText(QStringLiteral("Local"));
-        const bool liveInput =
-            m_liveInputButton != nullptr && m_liveInputButton->isChecked();
-        m_capture.setMonitorEnabled(liveInput);
-        setProcessorPassthrough(liveInput, Qt::BlockingQueuedConnection);
-        setProcessorLocalRvcCapture(true, Qt::BlockingQueuedConnection);
-        const auto generatorInputs = description.value().generator.inputs.size();
-        const auto generatorOutputs = description.value().generator.outputs.size();
-        setStatusText(QStringLiteral("Native ONNX RVC active: generator %1 in/%2 out.")
-                          .arg(static_cast<qulonglong>(generatorInputs))
-                          .arg(static_cast<qulonglong>(generatorOutputs)));
-        updateTransportState();
-        return;
-    }
-
-    m_nativeRvcEngine.reset();
-    auto started = m_rvcSidecar.start();
-    if (!started) {
-        setStatusText(QString::fromStdString(started.error().message));
-        return;
-    }
-    setStatusText(QStringLiteral("Loading local voice \"%1\"...")
-                      .arg(currentRvcModelName()));
-    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
-    const rvc::RvcClient warmupClient{started.value().endpoint};
-    auto warmed = warmupClient.loadModel(modelId);
-    for (int attempt = 0; !warmed && attempt < 4; ++attempt) {
-        QThread::msleep(250);
+        setStatusText(QStringLiteral(
+            "Warming Performance Mirror on the GPU. The first start can take a minute..."));
         QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
-        warmed = warmupClient.loadModel(modelId);
+        const rvc::RvcClient warmupClient{started.value().endpoint};
+        core::Expected<rvc::RvcHealth> health = core::makeError(
+            core::ErrorCode::FileSystemFailure, "Performance Mirror has not responded yet.");
+        for (int attempt = 0; attempt < 240; ++attempt) {
+            health = warmupClient.health();
+            if (health && health.value().cudaAvailable) {
+                break;
+            }
+            if (health && health.value().cudaVersion != "loading" &&
+                !health.value().message.empty() &&
+                health.value().message.find("warming up") == std::string::npos) {
+                break;
+            }
+            QThread::msleep(250);
+            QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+        }
+        if (!health || !health.value().cudaAvailable) {
+            setStatusText(health ? QString::fromStdString(health.value().message)
+                                 : QString::fromStdString(health.error().message));
+            return;
+        }
+
+        setStatusText(
+            QStringLiteral("Loading %1's live character reference...").arg(currentVoiceName()));
+        QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+        auto loaded = warmupClient.loadModel(targetId);
+        if (!loaded) {
+            auto latestHealth = warmupClient.health();
+            if (!latestHealth || latestHealth.value().loadedModelId != targetId) {
+                setStatusText(QString::fromStdString(loaded.error().message));
+                return;
+            }
+        }
+        m_directVoiceEngine = DirectVoiceEngine::PerformanceMirror;
+        m_directVoiceId = targetId;
+    } else {
+        const QSettings settings;
+        const auto runtimeMode =
+            settings.value(QStringLiteral("rvc/runtime"), QStringLiteral("sidecar")).toString();
+        if (!useCharacterModel && runtimeMode == QStringLiteral("native_onnx")) {
+            auto engine = std::make_shared<rvc::OnnxRvcEngine>();
+            auto runtime = engine->probeRuntime();
+            if (!runtime) {
+                setStatusText(QString::fromStdString(runtime.error().message));
+                return;
+            }
+            if (!runtime.value().available) {
+                setStatusText(QString::fromStdString(runtime.value().message));
+                return;
+            }
+
+            const auto bundleRoot = rvc::OnnxRvcEngine::defaultNativeModelRoot() / targetId;
+            auto bundle = engine->loadModelBundle(bundleRoot);
+            if (!bundle) {
+                setStatusText(QString::fromStdString(bundle.error().message));
+                return;
+            }
+
+            auto configured = engine->configureModelBundle(std::move(bundle.value()));
+            if (!configured) {
+                setStatusText(QString::fromStdString(configured.error().message));
+                return;
+            }
+
+            auto description = engine->describeConfiguredModel();
+            if (!description) {
+                setStatusText(QString::fromStdString(description.error().message));
+                return;
+            }
+            auto pipeline = engine->describeConfiguredPipeline();
+            if (!pipeline) {
+                setStatusText(QString::fromStdString(pipeline.error().message));
+                return;
+            }
+            m_nativeRvcEngine = std::move(engine);
+            m_localRvcOutputSampleRate = description.value().bundle.sampleRate;
+            m_directVoiceEngine = DirectVoiceEngine::NativeRvc;
+            m_directVoiceId = targetId;
+        } else {
+            m_nativeRvcEngine.reset();
+            auto started = m_rvcSidecar.start();
+            if (!started) {
+                setStatusText(QString::fromStdString(started.error().message));
+                return;
+            }
+            setStatusText(useCharacterModel
+                              ? QStringLiteral("Loading %1's trained character model...")
+                                    .arg(currentVoiceName())
+                              : QStringLiteral("Loading imported voice \"%1\"...")
+                                    .arg(currentRvcModelName()));
+            QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+            const rvc::RvcClient warmupClient{started.value().endpoint};
+            auto warmed = warmupClient.loadModel(targetId);
+            for (int attempt = 0; !warmed && attempt < 4; ++attempt) {
+                QThread::msleep(250);
+                QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+                warmed = warmupClient.loadModel(targetId);
+            }
+            if (!warmed) {
+                m_rvcSidecar.stop();
+                setStatusText(QString::fromStdString(warmed.error().message));
+                return;
+            }
+            m_directVoiceEngine =
+                useCharacterModel ? DirectVoiceEngine::CharacterRvc : DirectVoiceEngine::RvcSidecar;
+            m_directVoiceId = targetId;
+        }
     }
-    if (!warmed) {
-        m_rvcSidecar.stop();
-        setStatusText(QString::fromStdString(warmed.error().message));
-        return;
-    }
+
     if (!ensureCaptureRunning()) {
-        m_rvcSidecar.stop();
         return;
     }
 
@@ -1628,27 +1724,61 @@ void LiveMicPanel::toggleLocalRvcConversion() {
     m_pendingLocalRvcChunks.clear();
     m_recordedLocalRvcPcm.clear();
     m_localRvcSeconds = 0.0;
-    m_localRvcOutputSampleRate = kLocalRvcSampleRate;
+    m_directHasSpeech = false;
+    if (m_directVoiceEngine != DirectVoiceEngine::NativeRvc) {
+        m_localRvcOutputSampleRate = kLocalRvcSampleRate;
+    }
     m_localRvcOutputChannels = kLocalRvcChannels;
-    m_costLabel->setText(QStringLiteral("Local audio: 0.0 s"));
+    m_droppedDirectChunks = 0;
+    m_costLabel->setText(mirrorMode ? QStringLiteral("Character audio: 0.0 s")
+                                    : QStringLiteral("RVC audio: 0.0 s"));
     m_localRvcActive = true;
-    m_localRvcButton->setText(QStringLiteral("Stop Local"));
+    m_localRvcButton->setText(mirrorMode ? QStringLiteral("Stop Performance Mirror")
+                                         : QStringLiteral("Stop Imported RVC"));
     m_cancelLocalRvcButton->setEnabled(true);
-    m_modeCombo->setCurrentText(QStringLiteral("Local"));
     const bool liveInput = m_liveInputButton != nullptr && m_liveInputButton->isChecked();
     m_capture.setMonitorEnabled(liveInput);
     setProcessorPassthrough(liveInput, Qt::BlockingQueuedConnection);
+    setProcessorLocalRvcBlockMs(m_directVoiceEngine == DirectVoiceEngine::PerformanceMirror ? 360
+                                                                                            : 240,
+                                Qt::BlockingQueuedConnection);
     setProcessorLocalRvcCapture(true, Qt::BlockingQueuedConnection);
-    QString localStatus =
-        QStringLiteral("Local RVC active at %1.")
-            .arg(QString::fromStdString(started.value().endpoint));
-    const auto& health = warmed;
-    if (health && health.value().engine == "compat-pass-through") {
-        localStatus += QStringLiteral(
-            " This test sidecar passes audio through; use Cloud for cloned voices.");
-    }
-    setStatusText(localStatus);
+    setStatusText(
+        useCharacterModel
+            ? QStringLiteral("%1's trained character model is live.").arg(currentVoiceName())
+        : mirrorMode
+            ? QStringLiteral("Reference Mirror is live. Speak naturally; only the changed result "
+                             "is monitored.")
+            : QStringLiteral("Imported RVC is live."));
+    updateVoiceHud();
     updateTransportState();
+}
+
+void LiveMicPanel::installPerformanceMirror() {
+    (void)m_performanceMirrorSidecar.start();
+    const auto status = m_performanceMirrorSidecar.status();
+    if (status.engineInstalled) {
+        setStatusText(QStringLiteral("Performance Mirror is already installed."));
+        updateVoiceHud();
+        return;
+    }
+    if (!std::filesystem::exists(status.setupPath)) {
+        setStatusText(QStringLiteral("Performance Mirror setup could not be found."));
+        return;
+    }
+
+    const auto setupPath = QString::fromStdWString(status.setupPath.wstring());
+    const auto workingDirectory = QString::fromStdWString(status.sidecarRoot.wstring());
+    const bool launched =
+        QProcess::startDetached(QStringLiteral("powershell.exe"),
+                                {QStringLiteral("-NoProfile"), QStringLiteral("-ExecutionPolicy"),
+                                 QStringLiteral("Bypass"), QStringLiteral("-File"), setupPath},
+                                workingDirectory);
+    setStatusText(
+        launched
+            ? QStringLiteral(
+                  "Performance Mirror setup is running. Start the live voice after it finishes.")
+            : QStringLiteral("Unable to launch Performance Mirror setup."));
 }
 
 void LiveMicPanel::cancelLocalRvcConversion() {
@@ -1658,14 +1788,12 @@ void LiveMicPanel::cancelLocalRvcConversion() {
     m_localRvcActive = false;
     m_pendingLocalRvcChunks.clear();
     m_recordedLocalRvcPcm.clear();
-    m_localRvcButton->setText(QStringLiteral("Start Local"));
     m_cancelLocalRvcButton->setEnabled(false);
     if (m_audioThread.isRunning()) {
         setProcessorLocalRvcCapture(false, Qt::BlockingQueuedConnection);
     }
     if (!m_cloudActive) {
-        const bool keepLiveInput =
-            m_liveInputButton != nullptr && m_liveInputButton->isChecked();
+        const bool keepLiveInput = m_liveInputButton != nullptr && m_liveInputButton->isChecked();
         m_capture.setMonitorEnabled(keepLiveInput);
         setProcessorPassthrough(keepLiveInput, Qt::QueuedConnection);
         if (!keepLiveInput) {
@@ -1673,17 +1801,19 @@ void LiveMicPanel::cancelLocalRvcConversion() {
             m_capture.stop();
         }
     }
+    m_performanceMirrorSidecar.stop();
     m_rvcSidecar.stop();
     m_nativeRvcEngine.reset();
-    setStatusText(QStringLiteral("Local RVC cancelled."));
+    m_directVoiceEngine = DirectVoiceEngine::None;
+    m_directVoiceId.clear();
+    setStatusText(QStringLiteral("Live voice conversion cancelled."));
+    updateVoiceHud();
     updateTransportState();
 }
 
 void LiveMicPanel::openRvcModelManager() {
     RvcModelManagerDialog dialog{m_project, this};
-    connect(&dialog,
-            &RvcModelManagerDialog::rvcAssignmentsChanged,
-            this,
+    connect(&dialog, &RvcModelManagerDialog::rvcAssignmentsChanged, this,
             &LiveMicPanel::refreshRvcModels);
     dialog.exec();
     refreshRvcModels();
@@ -1692,10 +1822,9 @@ void LiveMicPanel::openRvcModelManager() {
 void LiveMicPanel::browseMonologueCaptureFolder() {
     const auto initialFolder =
         m_captureFolderEdit == nullptr ? QString{} : m_captureFolderEdit->text().trimmed();
-    const auto folder = QFileDialog::getExistingDirectory(
-        this,
-        QStringLiteral("Choose Monologue Capture Folder"),
-        QDir::fromNativeSeparators(initialFolder));
+    const auto folder =
+        QFileDialog::getExistingDirectory(this, QStringLiteral("Choose Monologue Capture Folder"),
+                                          QDir::fromNativeSeparators(initialFolder));
     if (folder.isEmpty()) {
         return;
     }
@@ -1709,8 +1838,7 @@ void LiveMicPanel::revealMonologueCapture() {
         std::filesystem::exists(m_lastMonologueCapturePath)) {
         const auto path = QString::fromStdWString(m_lastMonologueCapturePath.wstring());
         if (QProcess::startDetached(QStringLiteral("explorer.exe"),
-                                    {QStringLiteral("/select,"),
-                                     QDir::toNativeSeparators(path)})) {
+                                    {QStringLiteral("/select,"), QDir::toNativeSeparators(path)})) {
             setStatusText(QStringLiteral("Opened the monologue capture in File Explorer."));
             return;
         }
@@ -1718,9 +1846,8 @@ void LiveMicPanel::revealMonologueCapture() {
 
     const auto folder =
         m_captureFolderEdit == nullptr ? QString{} : m_captureFolderEdit->text().trimmed();
-    if (folder.isEmpty() ||
-        !QProcess::startDetached(QStringLiteral("explorer.exe"),
-                                 {QDir::toNativeSeparators(folder)})) {
+    if (folder.isEmpty() || !QProcess::startDetached(QStringLiteral("explorer.exe"),
+                                                     {QDir::toNativeSeparators(folder)})) {
         setStatusText(QStringLiteral("Choose a valid monologue capture folder first."));
         return;
     }
@@ -1738,19 +1865,18 @@ void LiveMicPanel::applyMeterUpdate(const int level, const bool speechActive) {
 }
 
 void LiveMicPanel::enqueueCloudChunk(QByteArray chunk) {
-    if (chunk.isEmpty() || (m_cloudCancelFlag != nullptr &&
-                            m_cloudCancelFlag->load(std::memory_order_acquire))) {
+    if (chunk.isEmpty() ||
+        (m_cloudCancelFlag != nullptr && m_cloudCancelFlag->load(std::memory_order_acquire))) {
         return;
     }
 
-    m_cloudSeconds += static_cast<double>(chunk.size()) /
-                      static_cast<double>(kCloudInputSampleRate * 2);
+    m_cloudSeconds +=
+        static_cast<double>(chunk.size()) / static_cast<double>(kCloudInputSampleRate * 2);
     m_pendingCloudChunks.push_back(std::move(chunk));
     m_pendingCloudTranscripts.emplace_back();
     m_costLabel->setText(
         QStringLiteral("%1: %2 s | %3 section(s)")
-            .arg(m_cloudLongTake ? QStringLiteral("Monologue")
-                                 : QStringLiteral("Character audio"))
+            .arg(m_cloudLongTake ? QStringLiteral("Monologue") : QStringLiteral("Character audio"))
             .arg(m_cloudSeconds, 0, 'f', 1)
             .arg(static_cast<int>(m_pendingCloudChunks.size())));
     if (!m_cloudLongTake || !m_cloudActive) {
@@ -1764,12 +1890,22 @@ void LiveMicPanel::enqueueLocalRvcChunk(QByteArray chunk) {
         return;
     }
 
-    m_localRvcSeconds += static_cast<double>(chunk.size()) /
-                         static_cast<double>(kLocalRvcSampleRate * 2);
-    const auto label = m_nativeRvcEngine == nullptr ? QStringLiteral("Local audio: %1 s")
-                                                    : QStringLiteral("Native audio: %1 s");
-    m_costLabel->setText(label.arg(m_localRvcSeconds, 0, 'f', 1));
+    const auto label = m_directVoiceEngine == DirectVoiceEngine::PerformanceMirror
+                           ? QStringLiteral("Mirrored audio: %1 s")
+                       : m_directVoiceEngine == DirectVoiceEngine::NativeRvc
+                           ? QStringLiteral("Native RVC audio: %1 s")
+                           : QStringLiteral("RVC audio: %1 s");
     m_pendingLocalRvcChunks.push_back(std::move(chunk));
+    constexpr std::size_t kMaximumWaitingBlocks = 2U;
+    while (m_pendingLocalRvcChunks.size() > kMaximumWaitingBlocks) {
+        m_pendingLocalRvcChunks.pop_front();
+        ++m_droppedDirectChunks;
+    }
+    auto costText = label.arg(m_localRvcSeconds, 0, 'f', 1);
+    if (m_droppedDirectChunks > 0) {
+        costText += QStringLiteral(" | %1 stale dropped").arg(m_droppedDirectChunks);
+    }
+    m_costLabel->setText(costText);
     startNextLocalRvcChunk();
 }
 
@@ -1781,9 +1917,8 @@ void LiveMicPanel::finishCloudConversion() {
         return;
     }
 
-    const bool staleVoice =
-        result.success && !m_cloudLongTake && !m_cloudVoiceId.empty() &&
-        result.voiceId != m_cloudVoiceId;
+    const bool staleVoice = result.success && !m_cloudLongTake && !m_cloudVoiceId.empty() &&
+                            result.voiceId != m_cloudVoiceId;
     int playbackDurationMs = 0;
     if (!result.success) {
         m_cloudConversionFailed = m_cloudConversionFailed || m_cloudLongTake;
@@ -1800,59 +1935,99 @@ void LiveMicPanel::finishCloudConversion() {
             const auto bytes = std::span<const std::uint8_t>{
                 reinterpret_cast<const std::uint8_t*>(result.convertedPcmBytes.constData()),
                 static_cast<std::size_t>(result.convertedPcmBytes.size())};
-            const auto playbackQueued =
-                queuePcmForTargets(playbackTargets,
-                                   bytes,
-                                   result.sampleRate,
-                                   kCloudOutputChannels,
-                                   playbackWarning);
+            const auto playbackQueued = queuePcmForTargets(
+                playbackTargets, bytes, result.sampleRate, kCloudOutputChannels, playbackWarning);
             if (playbackQueued) {
                 const auto outputFrames =
                     result.convertedPcmBytes.size() /
                     (static_cast<qsizetype>(sizeof(std::int16_t)) * kCloudOutputChannels);
-                playbackDurationMs = static_cast<int>(std::ceil(
-                    ((static_cast<double>(outputFrames) * 1000.0) /
-                     static_cast<double>(result.sampleRate)) *
-                    playbackTargets.durationScale));
+                playbackDurationMs =
+                    static_cast<int>(std::ceil(((static_cast<double>(outputFrames) * 1000.0) /
+                                                static_cast<double>(result.sampleRate)) *
+                                               playbackTargets.durationScale));
             }
             if (m_recordTakeCheck->isChecked() || m_cloudLongTake) {
                 m_recordedCloudPcm.append(result.convertedPcmBytes);
             }
             m_cloudOutputSampleRate = result.sampleRate;
-            setStatusText(playbackWarning.isEmpty()
-                              ? result.message
-                              : QStringLiteral("%1 Playback: %2")
-                                    .arg(result.message, playbackWarning));
+            setStatusText(
+                playbackWarning.isEmpty()
+                    ? result.message
+                    : QStringLiteral("%1 Playback: %2").arg(result.message, playbackWarning));
         }
     }
 
-    finishCloudPlaybackGuard(
-        result.success && !m_cloudLongTake && !staleVoice ? playbackDurationMs : 0);
+    finishCloudPlaybackGuard(result.success && !m_cloudLongTake && !staleVoice ? playbackDurationMs
+                                                                               : 0);
 }
 
 void LiveMicPanel::finishLocalRvcConversion() {
     const auto result = m_localRvcWatcher->result();
-    if (m_localRvcCancelFlag != nullptr &&
-        m_localRvcCancelFlag->load(std::memory_order_acquire)) {
-        setStatusText(QStringLiteral("Local RVC cancelled."));
+    if (m_localRvcCancelFlag != nullptr && m_localRvcCancelFlag->load(std::memory_order_acquire)) {
+        const bool restart = std::exchange(m_restartDirectAfterCancel, false);
+        setStatusText(restart ? QStringLiteral("Switching live character model...")
+                              : QStringLiteral("Live voice conversion cancelled."));
+        if (restart) {
+            m_localRvcCancelFlag.reset();
+            QTimer::singleShot(0, this, [this]() { toggleLocalRvcConversion(); });
+        }
         return;
     }
 
+    const bool staleTarget =
+        result.success && !result.targetId.empty() && result.targetId != m_directVoiceId;
     if (!result.success) {
         setStatusText(result.message);
+    } else if (staleTarget) {
+        setStatusText(QStringLiteral("Character changed; the previous live block was discarded."));
     } else {
-        if (m_recordTakeCheck->isChecked()) {
+        const bool exactSilence = std::ranges::all_of(result.convertedPcmBytes,
+                                                      [](const char value) { return value == 0; });
+        if (!exactSilence) {
+            m_directHasSpeech = true;
+        }
+        const bool keepForTake = m_directHasSpeech;
+        if (keepForTake && result.sampleRate > 0 && result.channels > 0) {
+            m_localRvcSeconds += static_cast<double>(result.convertedPcmBytes.size()) /
+                                 static_cast<double>(result.sampleRate * result.channels *
+                                                     static_cast<int>(sizeof(std::int16_t)));
+        }
+        QString playbackWarning;
+        if (!exactSilence) {
+            const auto bytes = std::span<const std::uint8_t>{
+                reinterpret_cast<const std::uint8_t*>(result.convertedPcmBytes.constData()),
+                static_cast<std::size_t>(result.convertedPcmBytes.size())};
+            (void)queuePcmForTargets(currentPlaybackTargets(), bytes, result.sampleRate,
+                                     result.channels, playbackWarning);
+        }
+        if (keepForTake && m_recordTakeCheck->isChecked()) {
             m_recordedLocalRvcPcm.append(result.convertedPcmBytes);
         }
         m_localRvcOutputSampleRate = result.sampleRate;
         m_localRvcOutputChannels = result.channels;
-        const auto message = QStringLiteral("%1 Latency: %2 ms.")
-                                 .arg(result.message)
-                                 .arg(result.latencyMs);
-        setStatusText(result.playbackWarning.isEmpty()
-                          ? message
-                          : QStringLiteral("%1 Playback: %2")
-                                .arg(message, result.playbackWarning));
+        const auto label = m_directVoiceEngine == DirectVoiceEngine::PerformanceMirror
+                               ? QStringLiteral("Mirrored audio: %1 s")
+                           : m_directVoiceEngine == DirectVoiceEngine::NativeRvc
+                               ? QStringLiteral("Native RVC audio: %1 s")
+                               : QStringLiteral("RVC audio: %1 s");
+        auto costText = label.arg(m_localRvcSeconds, 0, 'f', 1);
+        if (m_droppedDirectChunks > 0) {
+            costText += QStringLiteral(" | %1 stale dropped").arg(m_droppedDirectChunks);
+        }
+        m_costLabel->setText(costText);
+        const auto message =
+            QStringLiteral("%1 Latency: %2 ms.").arg(result.message).arg(result.latencyMs);
+        if (!result.playbackWarning.isEmpty()) {
+            if (!playbackWarning.isEmpty()) {
+                playbackWarning += QChar{' '};
+            }
+            playbackWarning += result.playbackWarning;
+        }
+        if (!exactSilence || m_directHasSpeech) {
+            setStatusText(playbackWarning.isEmpty()
+                              ? message
+                              : QStringLiteral("%1 Playback: %2").arg(message, playbackWarning));
+        }
     }
 
     startNextLocalRvcChunk();
@@ -1861,10 +2036,10 @@ void LiveMicPanel::finishLocalRvcConversion() {
 
 void LiveMicPanel::testLatency() {
     const auto result = m_latencyProbe.estimateSharedModeLatency(m_frameMsSpin->value());
-    setStatusText(QStringLiteral("Estimated monitor latency: %1 ms (%2 target).")
-                      .arg(result.latencyMs)
-                      .arg(result.withinTarget ? QStringLiteral("within")
-                                               : QStringLiteral("over")));
+    setStatusText(
+        QStringLiteral("Estimated monitor latency: %1 ms (%2 target).")
+            .arg(result.latencyMs)
+            .arg(result.withinTarget ? QStringLiteral("within") : QStringLiteral("over")));
 }
 
 void LiveMicPanel::setStatusText(const QString& text) {
@@ -1875,11 +2050,7 @@ void LiveMicPanel::startAudioProcessor() {
     auto* processor = m_audioProcessor;
     auto* capture = &m_capture;
     QMetaObject::invokeMethod(
-        processor,
-        [processor, capture]() {
-            processor->start(capture);
-        },
-        Qt::QueuedConnection);
+        processor, [processor, capture]() { processor->start(capture); }, Qt::QueuedConnection);
 }
 
 void LiveMicPanel::stopAudioProcessor(const Qt::ConnectionType connectionType) {
@@ -1888,12 +2059,7 @@ void LiveMicPanel::stopAudioProcessor(const Qt::ConnectionType connectionType) {
     }
 
     auto* processor = m_audioProcessor;
-    QMetaObject::invokeMethod(
-        processor,
-        [processor]() {
-            processor->stop();
-        },
-        connectionType);
+    QMetaObject::invokeMethod(processor, [processor]() { processor->stop(); }, connectionType);
 }
 
 void LiveMicPanel::setProcessorPassthrough(const bool enabled,
@@ -1904,10 +2070,7 @@ void LiveMicPanel::setProcessorPassthrough(const bool enabled,
 
     auto* processor = m_audioProcessor;
     QMetaObject::invokeMethod(
-        processor,
-        [processor, enabled]() {
-            processor->setPassthroughEnabled(enabled);
-        },
+        processor, [processor, enabled]() { processor->setPassthroughEnabled(enabled); },
         connectionType);
 }
 
@@ -1919,26 +2082,19 @@ void LiveMicPanel::setProcessorCloudCapture(const bool enabled,
 
     auto* processor = m_audioProcessor;
     QMetaObject::invokeMethod(
-        processor,
-        [processor, enabled]() {
-            processor->setCloudCaptureEnabled(enabled);
-        },
+        processor, [processor, enabled]() { processor->setCloudCaptureEnabled(enabled); },
         connectionType);
 }
 
-void LiveMicPanel::setProcessorCloudCapturePaused(
-    const bool paused,
-    const Qt::ConnectionType connectionType) {
+void LiveMicPanel::setProcessorCloudCapturePaused(const bool paused,
+                                                  const Qt::ConnectionType connectionType) {
     if (m_audioProcessor == nullptr || !m_audioThread.isRunning()) {
         return;
     }
 
     auto* processor = m_audioProcessor;
     QMetaObject::invokeMethod(
-        processor,
-        [processor, paused]() {
-            processor->setCloudCapturePaused(paused);
-        },
+        processor, [processor, paused]() { processor->setCloudCapturePaused(paused); },
         connectionType);
 }
 
@@ -1950,10 +2106,19 @@ void LiveMicPanel::setProcessorLocalRvcCapture(const bool enabled,
 
     auto* processor = m_audioProcessor;
     QMetaObject::invokeMethod(
-        processor,
-        [processor, enabled]() {
-            processor->setLocalRvcCaptureEnabled(enabled);
-        },
+        processor, [processor, enabled]() { processor->setLocalRvcCaptureEnabled(enabled); },
+        connectionType);
+}
+
+void LiveMicPanel::setProcessorLocalRvcBlockMs(const int blockMs,
+                                               const Qt::ConnectionType connectionType) {
+    if (m_audioProcessor == nullptr || !m_audioThread.isRunning()) {
+        return;
+    }
+
+    auto* processor = m_audioProcessor;
+    QMetaObject::invokeMethod(
+        processor, [processor, blockMs]() { processor->setLocalRvcBlockMs(blockMs); },
         connectionType);
 }
 
@@ -1961,9 +2126,8 @@ void LiveMicPanel::prepareMonologueTranscripts() {
     if (!m_cloudLongTake || m_pendingCloudChunks.empty()) {
         return;
     }
-    const auto script = m_lineIdEdit == nullptr
-                            ? std::string{}
-                            : m_lineIdEdit->text().trimmed().toStdString();
+    const auto script =
+        m_lineIdEdit == nullptr ? std::string{} : m_lineIdEdit->text().trimmed().toStdString();
     if (script.empty()) {
         return;
     }
@@ -1974,14 +2138,12 @@ void LiveMicPanel::prepareMonologueTranscripts() {
         weights.push_back(static_cast<std::size_t>(chunk.size()));
     }
     auto transcripts = core::splitTextByWeights(script, weights);
-    m_pendingCloudTranscripts.assign(
-        std::make_move_iterator(transcripts.begin()),
-        std::make_move_iterator(transcripts.end()));
+    m_pendingCloudTranscripts.assign(std::make_move_iterator(transcripts.begin()),
+                                     std::make_move_iterator(transcripts.end()));
 }
 
 void LiveMicPanel::startNextCloudChunk() {
-    if (m_cloudWatcher->isRunning() || m_cloudPlaybackGuardActive ||
-        m_pendingCloudChunks.empty()) {
+    if (m_cloudWatcher->isRunning() || m_cloudPlaybackGuardActive || m_pendingCloudChunks.empty()) {
         saveCloudRecordingIfReady();
         return;
     }
@@ -2014,26 +2176,20 @@ void LiveMicPanel::startNextCloudChunk() {
     if (!m_cloudLongTake && m_cloudActive) {
         setProcessorCloudCapturePaused(true, Qt::BlockingQueuedConnection);
     }
-    m_costLabel->setText(
-        QStringLiteral("Character audio: %1 s | %2 waiting")
-            .arg(m_cloudSeconds, 0, 'f', 1)
-            .arg(static_cast<int>(m_pendingCloudChunks.size())));
+    m_costLabel->setText(QStringLiteral("Character audio: %1 s | %2 waiting")
+                             .arg(m_cloudSeconds, 0, 'f', 1)
+                             .arg(static_cast<int>(m_pendingCloudChunks.size())));
     auto cancelFlag = m_cloudCancelFlag;
     const auto endpoint = m_voxCpmSidecar.status().endpoint;
     m_cloudWatcher->setFuture(
-        QtConcurrent::run([endpoint,
-                           voiceId,
-                           chunk,
-                           transcript,
-                           cancelFlag]() {
+        QtConcurrent::run([endpoint, voiceId, chunk, transcript, cancelFlag]() {
             return convertCloudChunk(endpoint, voiceId, chunk, transcript, cancelFlag);
         }));
 }
 
 void LiveMicPanel::finishCloudPlaybackGuard(const int playbackDurationMs) {
     const auto generation = m_cloudPlaybackGeneration;
-    const auto delayMs =
-        playbackDurationMs > 0 ? playbackDurationMs + kCloudPlaybackTailMs : 0;
+    const auto delayMs = playbackDurationMs > 0 ? playbackDurationMs + kCloudPlaybackTailMs : 0;
     QTimer::singleShot(delayMs, this, [this, generation]() {
         if (generation != m_cloudPlaybackGeneration) {
             return;
@@ -2053,36 +2209,37 @@ void LiveMicPanel::startNextLocalRvcChunk() {
         saveLocalRvcRecordingIfReady();
         return;
     }
-    if (m_localRvcCancelFlag != nullptr &&
-        m_localRvcCancelFlag->load(std::memory_order_acquire)) {
+    if (m_localRvcCancelFlag != nullptr && m_localRvcCancelFlag->load(std::memory_order_acquire)) {
         m_pendingLocalRvcChunks.clear();
         return;
     }
 
-    const auto modelId = currentRvcModelId();
-    if (modelId.empty()) {
+    const auto targetId = m_directVoiceId;
+    if (targetId.empty()) {
         m_pendingLocalRvcChunks.clear();
-        setStatusText(QStringLiteral("Select an RVC model first."));
+        setStatusText(QStringLiteral("Select a live voice target first."));
         return;
     }
 
     auto chunk = std::move(m_pendingLocalRvcChunks.front());
     m_pendingLocalRvcChunks.pop_front();
-    const auto playbackTargets = currentPlaybackTargets();
     auto cancelFlag = m_localRvcCancelFlag;
     auto nativeEngine = m_nativeRvcEngine;
     if (nativeEngine != nullptr) {
         m_localRvcWatcher->setFuture(
-            QtConcurrent::run([nativeEngine, chunk, playbackTargets, cancelFlag]() {
-                return convertNativeRvcChunk(nativeEngine, chunk, playbackTargets, cancelFlag);
+            QtConcurrent::run([nativeEngine, targetId, chunk, cancelFlag]() {
+                return convertNativeRvcChunk(nativeEngine, targetId, chunk, cancelFlag);
             }));
         return;
     }
 
-    const auto endpoint = m_rvcSidecar.status().endpoint;
+    const bool mirror = m_directVoiceEngine == DirectVoiceEngine::PerformanceMirror;
+    const auto endpoint =
+        mirror ? m_performanceMirrorSidecar.status().endpoint : m_rvcSidecar.status().endpoint;
+    const auto engineName = mirror ? QStringLiteral("Performance Mirror") : QStringLiteral("RVC");
     m_localRvcWatcher->setFuture(
-        QtConcurrent::run([endpoint, modelId, chunk, playbackTargets, cancelFlag]() {
-            return convertLocalRvcChunk(endpoint, modelId, chunk, playbackTargets, cancelFlag);
+        QtConcurrent::run([endpoint, targetId, engineName, chunk, cancelFlag]() {
+            return convertLocalRvcChunk(endpoint, targetId, engineName, chunk, cancelFlag);
         }));
 }
 
@@ -2097,8 +2254,8 @@ void LiveMicPanel::saveCloudRecordingIfReady() {
         return;
     }
     if (m_cloudLongTake && m_cloudConversionFailed) {
-        setStatusText(QStringLiteral(
-            "Monologue rendering failed; no incomplete capture was saved."));
+        setStatusText(
+            QStringLiteral("Monologue rendering failed; no incomplete capture was saved."));
         m_recordedCloudPcm.clear();
         m_cloudVoiceId.clear();
         m_cloudLongTake = false;
@@ -2123,11 +2280,8 @@ void LiveMicPanel::saveCloudRecordingIfReady() {
     if (m_cloudLongTake) {
         QString playbackWarning;
         const auto playbackQueued =
-            queuePcmForTargets(currentPlaybackTargets(),
-                               bytes,
-                               m_cloudOutputSampleRate,
-                               kCloudOutputChannels,
-                               playbackWarning);
+            queuePcmForTargets(currentPlaybackTargets(), bytes, m_cloudOutputSampleRate,
+                               kCloudOutputChannels, playbackWarning);
         (void)playbackQueued;
         if (!playbackWarning.isEmpty()) {
             setStatusText(QStringLiteral("Monologue playback: %1").arg(playbackWarning));
@@ -2147,9 +2301,8 @@ void LiveMicPanel::saveCloudRecordingIfReady() {
         m_cloudVoiceId.clear();
         m_cloudLongTake = false;
         m_cloudConversionFailed = false;
-        setStatusText(captureMessage.isEmpty()
-                          ? QStringLiteral("VoxCPM2 rendering finished.")
-                          : captureMessage);
+        setStatusText(captureMessage.isEmpty() ? QStringLiteral("VoxCPM2 rendering finished.")
+                                               : captureMessage);
         return;
     }
     if (!m_project.has_value() || m_recordingLineId.empty()) {
@@ -2164,10 +2317,8 @@ void LiveMicPanel::saveCloudRecordingIfReady() {
     }
 
     core::TakeManager takeManager;
-    auto saved = takeManager.saveVoxCpmTake(m_project->rootPath(),
-                                            m_recordingLineId,
-                                            m_recordingLineVoiceId,
-                                            audio.value());
+    auto saved = takeManager.saveVoxCpmTake(m_project->rootPath(), m_recordingLineId,
+                                            m_recordingLineVoiceId, audio.value());
     if (!saved) {
         setStatusText(QString::fromStdString(saved.error().message));
         m_recordedCloudPcm.clear();
@@ -2182,14 +2333,13 @@ void LiveMicPanel::saveCloudRecordingIfReady() {
     m_cloudLongTake = false;
     m_cloudConversionFailed = false;
     refreshRecentTakes();
-    setStatusText(captureMessage.isEmpty()
-                      ? QStringLiteral("Saved changed-voice take for \"%1\".")
-                            .arg(m_recordingLineText)
-                      : QStringLiteral("%1 Project take saved.").arg(captureMessage));
+    setStatusText(
+        captureMessage.isEmpty()
+            ? QStringLiteral("Saved changed-voice take for \"%1\".").arg(m_recordingLineText)
+            : QStringLiteral("%1 Project take saved.").arg(captureMessage));
 }
 
-bool LiveMicPanel::saveMonologueCapture(const audio::PcmAudioBuffer& audio,
-                                        QString& message) {
+bool LiveMicPanel::saveMonologueCapture(const audio::PcmAudioBuffer& audio, QString& message) {
     if (m_activeCaptureFolder.empty()) {
         setStatusText(QStringLiteral("Choose a monologue capture folder first."));
         return false;
@@ -2203,19 +2353,21 @@ bool LiveMicPanel::saveMonologueCapture(const audio::PcmAudioBuffer& audio,
     }
 
     m_lastMonologueCapturePath = outputPath;
-    message =
-        QStringLiteral("Saved monologue capture \"%1\".")
-            .arg(QString::fromStdWString(outputPath.filename().wstring()));
+    message = QStringLiteral("Saved monologue capture \"%1\".")
+                  .arg(QString::fromStdWString(outputPath.filename().wstring()));
     return true;
 }
 
 void LiveMicPanel::saveLocalRvcRecordingIfReady() {
-    if (m_localRvcActive || m_localRvcWatcher->isRunning() ||
-        !m_pendingLocalRvcChunks.empty()) {
+    if (m_localRvcActive || m_localRvcWatcher->isRunning() || !m_pendingLocalRvcChunks.empty()) {
         return;
     }
     if (m_recordedLocalRvcPcm.isEmpty()) {
         m_nativeRvcEngine.reset();
+        if (!m_localRvcActive) {
+            m_directVoiceEngine = DirectVoiceEngine::None;
+            m_directVoiceId.clear();
+        }
         return;
     }
     if (!m_recordTakeCheck->isChecked()) {
@@ -2224,7 +2376,7 @@ void LiveMicPanel::saveLocalRvcRecordingIfReady() {
         return;
     }
     if (!m_project.has_value() || m_recordingLineId.empty()) {
-        setStatusText(QStringLiteral("Local RVC finished. Take was not saved."));
+        setStatusText(QStringLiteral("Live voice finished. Take was not saved."));
         m_recordedLocalRvcPcm.clear();
         m_nativeRvcEngine.reset();
         return;
@@ -2233,9 +2385,8 @@ void LiveMicPanel::saveLocalRvcRecordingIfReady() {
     const auto bytes = std::span<const std::uint8_t>{
         reinterpret_cast<const std::uint8_t*>(m_recordedLocalRvcPcm.constData()),
         static_cast<std::size_t>(m_recordedLocalRvcPcm.size())};
-    auto audio = audio::pcm16LittleEndianToPcm(bytes,
-                                               m_localRvcOutputSampleRate,
-                                               m_localRvcOutputChannels);
+    auto audio =
+        audio::pcm16LittleEndianToPcm(bytes, m_localRvcOutputSampleRate, m_localRvcOutputChannels);
     if (!audio) {
         setStatusText(QString::fromStdString(audio.error().message));
         m_recordedLocalRvcPcm.clear();
@@ -2244,10 +2395,12 @@ void LiveMicPanel::saveLocalRvcRecordingIfReady() {
     }
 
     core::TakeManager takeManager;
-    auto saved = takeManager.saveRvcLocalTake(m_project->rootPath(),
-                                              m_recordingLineId,
-                                              m_recordingRvcModelId,
-                                              audio.value());
+    const bool mirror = m_directVoiceEngine == DirectVoiceEngine::PerformanceMirror;
+    auto saved =
+        mirror ? takeManager.savePerformanceMirrorTake(m_project->rootPath(), m_recordingLineId,
+                                                       m_recordingLineVoiceId, audio.value())
+               : takeManager.saveRvcLocalTake(m_project->rootPath(), m_recordingLineId,
+                                              m_recordingRvcModelId, audio.value());
     if (!saved) {
         setStatusText(QString::fromStdString(saved.error().message));
         m_recordedLocalRvcPcm.clear();
@@ -2257,8 +2410,12 @@ void LiveMicPanel::saveLocalRvcRecordingIfReady() {
 
     m_recordedLocalRvcPcm.clear();
     m_nativeRvcEngine.reset();
+    m_directVoiceEngine = DirectVoiceEngine::None;
+    m_directVoiceId.clear();
     refreshRecentTakes();
-    setStatusText(QStringLiteral("Saved local take for \"%1\".").arg(m_recordingLineText));
+    setStatusText(mirror
+                      ? QStringLiteral("Saved mirrored take for \"%1\".").arg(m_recordingLineText)
+                      : QStringLiteral("Saved RVC take for \"%1\".").arg(m_recordingLineText));
 }
 
 void LiveMicPanel::refreshRecentTakes() {
@@ -2290,9 +2447,9 @@ void LiveMicPanel::playTake(db::TakeRecord take) {
         setStatusText(QString::fromStdString(played.error().message));
         return;
     }
-    setStatusText(QStringLiteral("Playing %1 take for %2.")
-                      .arg(QString::fromStdString(take.source),
-                           QString::fromStdString(take.characterName)));
+    setStatusText(
+        QStringLiteral("Playing %1 take for %2.")
+            .arg(QString::fromStdString(take.source), QString::fromStdString(take.characterName)));
 }
 
 void LiveMicPanel::starTake(db::TakeRecord take) {
@@ -2322,8 +2479,7 @@ void LiveMicPanel::revealTake(db::TakeRecord take) {
 
     const auto path = QString::fromStdWString(absolutePath.wstring());
     if (!QProcess::startDetached(QStringLiteral("explorer.exe"),
-                                 {QStringLiteral("/select,"),
-                                  QDir::toNativeSeparators(path)})) {
+                                 {QStringLiteral("/select,"), QDir::toNativeSeparators(path)})) {
         setStatusText(QStringLiteral("Unable to open File Explorer."));
         return;
     }
@@ -2335,8 +2491,7 @@ void LiveMicPanel::deleteTake(db::TakeRecord take) {
         return;
     }
     const auto answer =
-        QMessageBox::question(this,
-                              QStringLiteral("Delete Take"),
+        QMessageBox::question(this, QStringLiteral("Delete Take"),
                               QStringLiteral("Delete this recorded take and its audio file?"));
     if (answer != QMessageBox::Yes) {
         return;
@@ -2366,9 +2521,11 @@ bool LiveMicPanel::ensureRecordingLine() {
     }
 
     const auto voiceId = currentVoiceId();
-    const auto rvcModelId = currentRvcModelId();
-    const bool localMode =
-        m_modeCombo != nullptr && m_modeCombo->currentText() == QStringLiteral("Local");
+    const bool importedMode = importedRvcMode();
+    const auto characterModelId =
+        performanceMirrorMode() ? currentCharacterRvcModelId() : std::string{};
+    const auto rvcModelId = importedMode ? currentRvcModelId() : characterModelId;
+    const bool localMode = importedMode || !characterModelId.empty();
     auto characterName = currentVoiceName().trimmed();
     if (characterName.isEmpty() && localMode) {
         characterName = currentRvcModelName().trimmed();
@@ -2381,15 +2538,12 @@ bool LiveMicPanel::ensureRecordingLine() {
     const auto savedVoiceId = voiceId;
     const auto savedRvcModelId = localMode ? rvcModelId : std::string{};
     if (!m_recordingLineId.empty() && m_recordingLineText == lineText &&
-        m_recordingLineVoiceId == savedVoiceId &&
-        m_recordingRvcModelId == savedRvcModelId) {
+        m_recordingLineVoiceId == savedVoiceId && m_recordingRvcModelId == savedRvcModelId) {
         return true;
     }
 
-    auto line = m_scriptRepository.createPerformanceLine(m_project->rootPath(),
-                                                         characterName.toStdString(),
-                                                         savedVoiceId,
-                                                         lineText.toStdString());
+    auto line = m_scriptRepository.createPerformanceLine(
+        m_project->rootPath(), characterName.toStdString(), savedVoiceId, lineText.toStdString());
     if (!line) {
         setStatusText(QString::fromStdString(line.error().message));
         return false;
@@ -2412,8 +2566,7 @@ bool LiveMicPanel::ensureRecordingLine() {
 
 audio::CaptureConfig LiveMicPanel::currentCaptureConfig() const {
     return audio::CaptureConfig{comboDeviceIndex(m_inputDeviceCombo),
-                                comboDeviceIndex(m_outputDeviceCombo),
-                                m_frameMsSpin->value(),
+                                comboDeviceIndex(m_outputDeviceCombo), m_frameMsSpin->value(),
                                 static_cast<float>(m_gainSlider->value()) / 100.0F};
 }
 
@@ -2429,6 +2582,12 @@ std::string LiveMicPanel::currentRvcModelId() const {
         return {};
     }
     return m_rvcModelCombo->currentData().toString().toStdString();
+}
+
+std::string LiveMicPanel::currentCharacterRvcModelId() const {
+    const auto voiceId = currentVoiceId();
+    const auto found = m_characterRvcModels.find(voiceId);
+    return found == m_characterRvcModels.end() ? std::string{} : found->second;
 }
 
 QString LiveMicPanel::currentVoiceName() const {
@@ -2447,6 +2606,15 @@ QString LiveMicPanel::currentRvcModelName() const {
 
 int LiveMicPanel::currentPitchShiftSemitones() const {
     return m_pitchSlider == nullptr ? 0 : m_pitchSlider->value();
+}
+
+bool LiveMicPanel::performanceMirrorMode() const {
+    return m_modeCombo != nullptr &&
+           m_modeCombo->currentText() == QStringLiteral("Performance Mirror");
+}
+
+bool LiveMicPanel::importedRvcMode() const {
+    return m_modeCombo != nullptr && m_modeCombo->currentText() == QStringLiteral("Imported RVC");
 }
 
 PlaybackTargets LiveMicPanel::currentPlaybackTargets() noexcept {

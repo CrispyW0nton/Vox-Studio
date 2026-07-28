@@ -1,0 +1,15 @@
+{
+  "name": "Vox Studio Performance Mirror Sidecar",
+  "version": 1,
+  "engine": "Seed-VC real-time tiny",
+  "upstream": "https://github.com/Plachtaa/seed-vc",
+  "upstream_revision": "51383efd921027683c89e5348211d93ff12ac2a8",
+  "upstream_license": "GPL-3.0",
+  "endpoint": "http://127.0.0.1:18910",
+  "block_ms": 360,
+  "diffusion_steps": 6,
+  "inference_cfg_rate": 0.0,
+  "left_context_seconds": 1.5,
+  "diffusion_context_seconds": 0.1,
+  "notes": "The official Seed-VC runtime and model weights are installed separately under LocalAppData. Vox Studio sends local PCM blocks to this separate process."
+}
