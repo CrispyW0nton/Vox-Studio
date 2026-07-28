@@ -106,6 +106,7 @@ private:
     void revealMonologueCapture();
     void updateGain(int value);
     void updateVoiceFx();
+    void updateInputRoute(int index);
     void updateOutputRoute(int index);
     void setBroadcastChecked(bool enabled);
     void toggleVoiceChangerPower();

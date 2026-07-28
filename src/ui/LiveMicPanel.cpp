@@ -73,6 +73,29 @@ template <typename TWidget, typename... TArgs>
     return found == devices.end() ? -1 : static_cast<int>(std::distance(devices.begin(), found));
 }
 
+[[nodiscard]] bool isVirtualInputDevice(const audio::AudioDeviceInfo& device) {
+    static constexpr std::array virtualInputNames{
+        "voicemod", "cable output", "voicemeeter output", "virtual audio", "stereo mix",
+    };
+    const auto name = QString::fromStdString(device.name);
+    return std::ranges::any_of(virtualInputNames, [&name](const auto candidate) {
+        return name.contains(QString::fromLatin1(candidate), Qt::CaseInsensitive);
+    });
+}
+
+[[nodiscard]] int preferredPhysicalInputIndex(const std::vector<audio::AudioDeviceInfo>& devices) {
+    const auto defaultIndex = defaultDeviceIndex(devices);
+    if (defaultIndex >= 0 &&
+        !isVirtualInputDevice(devices[static_cast<std::size_t>(defaultIndex)])) {
+        return defaultIndex;
+    }
+
+    const auto physical = std::ranges::find_if(
+        devices, [](const auto& device) { return !isVirtualInputDevice(device); });
+    return physical == devices.end() ? defaultIndex
+                                     : static_cast<int>(std::distance(devices.begin(), physical));
+}
+
 [[nodiscard]] int comboDeviceIndex(const QComboBox* combo) {
     if (combo == nullptr || combo->currentIndex() < 0) {
         return -1;
@@ -672,7 +695,7 @@ LiveMicPanel::LiveMicPanel(QWidget* parent)
     connect(m_voicePowerButton, &QPushButton::clicked, this,
             &LiveMicPanel::toggleVoiceChangerPower);
     connect(m_inputDeviceCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
-            &LiveMicPanel::updateOutputRoute);
+            &LiveMicPanel::updateInputRoute);
     connect(m_outputDeviceCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
             &LiveMicPanel::updateOutputRoute);
     connect(m_broadcastOutputDeviceCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
@@ -788,9 +811,9 @@ void LiveMicPanel::refreshDevices() {
         for (const auto& device : m_inputDevices) {
             m_inputDeviceCombo->addItem(deviceLabel(device), device.index);
         }
-        const auto defaultIndex = defaultDeviceIndex(m_inputDevices);
-        if (defaultIndex >= 0) {
-            m_inputDeviceCombo->setCurrentIndex(defaultIndex);
+        const auto inputIndex = preferredPhysicalInputIndex(m_inputDevices);
+        if (inputIndex >= 0) {
+            m_inputDeviceCombo->setCurrentIndex(inputIndex);
         }
     }
 
@@ -977,6 +1000,53 @@ void LiveMicPanel::updateVoiceFx() {
     if (m_pitchValueLabel != nullptr) {
         m_pitchValueLabel->setText(QString::number(pitch));
     }
+}
+
+void LiveMicPanel::updateInputRoute(int) {
+    if (!m_capture.stats().running) {
+        return;
+    }
+
+    const bool directActive = m_localRvcActive;
+    const bool cloudActive = m_cloudActive;
+    if (directActive) {
+        setProcessorLocalRvcCapture(false, Qt::BlockingQueuedConnection);
+    }
+    if (cloudActive) {
+        setProcessorCloudCapture(false, Qt::BlockingQueuedConnection);
+    }
+    stopAudioProcessor(Qt::BlockingQueuedConnection);
+    m_capture.stop();
+
+    if (!ensureCaptureRunning()) {
+        if (directActive) {
+            cancelLocalRvcConversion();
+        } else if (cloudActive) {
+            cancelCloudConversion();
+        } else {
+            setHearSelfChecked(false);
+        }
+        return;
+    }
+
+    const bool convertedMode = directActive || cloudActive;
+    const bool liveInput = m_liveInputButton != nullptr && m_liveInputButton->isChecked();
+    const bool passthrough =
+        convertedMode ? liveInput : m_monitorCheck != nullptr && m_monitorCheck->isChecked();
+    m_capture.setMonitorEnabled(passthrough);
+    setProcessorPassthrough(passthrough, Qt::BlockingQueuedConnection);
+    if (directActive) {
+        setProcessorLocalRvcBlockMs(
+            m_directVoiceEngine == DirectVoiceEngine::PerformanceMirror ? 360 : 240,
+            Qt::BlockingQueuedConnection);
+        setProcessorLocalRvcCapture(true, Qt::BlockingQueuedConnection);
+    }
+    if (cloudActive) {
+        setProcessorCloudCapturePaused(false, Qt::BlockingQueuedConnection);
+        setProcessorCloudCapture(true, Qt::BlockingQueuedConnection);
+    }
+    setStatusText(
+        QStringLiteral("Microphone switched to %1.").arg(m_inputDeviceCombo->currentText()));
 }
 
 void LiveMicPanel::updateOutputRoute(int) {
