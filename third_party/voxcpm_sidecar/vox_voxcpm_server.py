@@ -49,10 +49,13 @@ from vox_text import (
     delivery_instruction,
     normalized_delivery_tag,
     normalized_performance_mode,
+    parse_performance_script,
     plan_story_performance,
     split_text_for_synthesis,
     story_beat_instruction,
     synthesis_seed,
+    vocal_action_by_name,
+    vocal_action_instruction,
 )
 
 
@@ -485,14 +488,19 @@ def text_synthesis_section(
     instruction: str,
     pause_after: float,
     seed: int,
+    force_controlled: bool = False,
 ) -> TextSynthesisSection:
     target_features, target_delivery = text_delivery_target(delivery_tag)
-    style_anchor = select_style_anchor(
-        profile,
-        profile_dir,
-        target_features,
-        target_delivery,
-        text,
+    style_anchor = (
+        None
+        if force_controlled
+        else select_style_anchor(
+            profile,
+            profile_dir,
+            target_features,
+            target_delivery,
+            text,
+        )
     )
     if style_anchor is None:
         return TextSynthesisSection(
@@ -515,6 +523,89 @@ def text_synthesis_section(
         pause_after=pause_after,
         seed=seed,
     )
+
+
+def text_synthesis_sections(
+    profile: dict,
+    profile_dir: Path,
+    reference_path: Path,
+    text: str,
+    delivery_tag: str,
+    performance_mode: str,
+) -> tuple[TextSynthesisSection, ...]:
+    sections: list[TextSynthesisSection] = []
+    story_plan = (
+        plan_story_performance(text, delivery_tag)
+        if performance_mode == STORYTELLING_MODE
+        else None
+    )
+    if story_plan is not None:
+        for beat in story_plan.beats:
+            action = vocal_action_by_name(beat.action) if beat.action else None
+            section_text = action.synthesis_text if action is not None else beat.text
+            sections.append(
+                text_synthesis_section(
+                    profile=profile,
+                    profile_dir=profile_dir,
+                    reference_path=reference_path,
+                    text=section_text,
+                    delivery_tag=beat.delivery,
+                    instruction=" ".join(
+                        value
+                        for value in (
+                            text_identity_instruction(profile),
+                            story_beat_instruction(beat, delivery_tag),
+                        )
+                        if value
+                    ),
+                    pause_after=beat.pause_after,
+                    seed=synthesis_seed(len(sections), section_text),
+                    force_controlled=action is not None,
+                )
+            )
+        return tuple(sections)
+
+    speech_instruction = text_control_instruction(profile, delivery_tag)
+    for segment in parse_performance_script(text):
+        if segment.action is not None:
+            action = segment.action
+            instruction = " ".join(
+                value
+                for value in (
+                    text_identity_instruction(profile),
+                    vocal_action_instruction(action),
+                )
+                if value
+            )
+            sections.append(
+                text_synthesis_section(
+                    profile=profile,
+                    profile_dir=profile_dir,
+                    reference_path=reference_path,
+                    text=action.synthesis_text,
+                    delivery_tag=delivery_tag,
+                    instruction=instruction,
+                    pause_after=action.pause_after,
+                    seed=synthesis_seed(len(sections), action.synthesis_text),
+                    force_controlled=True,
+                )
+            )
+            continue
+
+        for speech_section in split_text_for_synthesis(segment.text):
+            sections.append(
+                text_synthesis_section(
+                    profile=profile,
+                    profile_dir=profile_dir,
+                    reference_path=reference_path,
+                    text=speech_section,
+                    delivery_tag=delivery_tag,
+                    instruction=speech_instruction,
+                    pause_after=text_pause_seconds(speech_section),
+                    seed=synthesis_seed(len(sections), speech_section),
+                )
+            )
+    return tuple(sections)
 
 
 def trim_text_audio_silence(
@@ -729,47 +820,18 @@ async def render_text(
 
     delivery_tag = normalized_delivery_tag(delivery)
     performance_mode = normalized_performance_mode(mode)
-    story_plan = (
-        plan_story_performance(spoken_text, delivery_tag)
-        if performance_mode == STORYTELLING_MODE
-        else None
+    synthesis_sections = text_synthesis_sections(
+        profile,
+        profile_dir,
+        reference_path,
+        spoken_text,
+        delivery_tag,
+        performance_mode,
     )
-    if story_plan is not None:
-        synthesis_sections = tuple(
-            text_synthesis_section(
-                profile=profile,
-                profile_dir=profile_dir,
-                reference_path=reference_path,
-                text=beat.text,
-                delivery_tag=beat.delivery,
-                instruction=" ".join(
-                    value
-                    for value in (
-                        text_identity_instruction(profile),
-                        story_beat_instruction(beat, delivery_tag),
-                    )
-                    if value
-                ),
-                pause_after=beat.pause_after,
-                seed=synthesis_seed(index, beat.text),
-            )
-            for index, beat in enumerate(story_plan.beats)
-        )
-    else:
-        sections = split_text_for_synthesis(spoken_text)
-        instruction = text_control_instruction(profile, delivery_tag)
-        synthesis_sections = tuple(
-            text_synthesis_section(
-                profile=profile,
-                profile_dir=profile_dir,
-                reference_path=reference_path,
-                text=section,
-                delivery_tag=delivery_tag,
-                instruction=instruction,
-                pause_after=text_pause_seconds(section),
-                seed=synthesis_seed(index, section),
-            )
-            for index, section in enumerate(sections)
+    if not synthesis_sections:
+        raise HTTPException(
+            status_code=400,
+            detail="Enter dialogue or a supported vocal action to synthesize.",
         )
 
     if text_render_lock.locked():

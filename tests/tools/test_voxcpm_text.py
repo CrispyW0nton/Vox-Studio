@@ -12,11 +12,13 @@ from vox_text import (  # noqa: E402
     STORYTELLING_MODE,
     delivery_instruction,
     normalized_delivery_tag,
+    parse_performance_script,
     plan_story_performance,
     split_text_for_synthesis,
     story_beat_instruction,
     supported_delivery_tags,
     synthesis_seed,
+    vocal_action_instruction,
 )
 
 ATTON_STORY = (
@@ -84,6 +86,51 @@ class TextSegmentationTests(unittest.TestCase):
         self.assertGreater(len(sections), 1)
         self.assertEqual(" ".join(sections), text)
         self.assertTrue(all(len(section) <= 60 for section in sections))
+
+
+class PerformanceCueTests(unittest.TestCase):
+    def test_extracts_vocal_action_without_speaking_its_label(self) -> None:
+        segments = parse_performance_script(
+            "I thought I was ready. *sighs deeply* Let's try again."
+        )
+
+        self.assertEqual(len(segments), 3)
+        self.assertEqual(segments[0].text, "I thought I was ready.")
+        self.assertIsNotNone(segments[1].action)
+        self.assertEqual(segments[1].action.name, "sigh")
+        self.assertNotIn("sigh", segments[1].action.synthesis_text.casefold())
+        self.assertEqual(segments[2].text, "Let's try again.")
+
+    def test_accepts_double_asterisks_and_maps_dies_to_death_gasp(self) -> None:
+        segments = parse_performance_script("Not like this. ** dies **")
+
+        self.assertEqual(len(segments), 2)
+        self.assertEqual(segments[1].action.name, "death")
+        self.assertEqual(segments[1].action.display, "Death gasp")
+        self.assertGreaterEqual(segments[1].action.pause_after, 0.4)
+
+    def test_accepts_markdown_escaped_stage_directions(self) -> None:
+        segments = parse_performance_script(r"I understand. \*sighs\*")
+
+        self.assertEqual(len(segments), 2)
+        self.assertEqual(segments[1].action.name, "sigh")
+        self.assertNotIn("\\", " ".join(segment.text for segment in segments))
+
+    def test_markdown_emphasis_remains_spoken_text(self) -> None:
+        segments = parse_performance_script("This is *very* important.")
+
+        self.assertEqual(len(segments), 1)
+        self.assertEqual(segments[0].text, "This is very important.")
+        self.assertIsNone(segments[0].action)
+
+    def test_vocal_action_instruction_forbids_labels_and_repetition(self) -> None:
+        action = parse_performance_script("*laughs*")[0].action
+
+        instruction = vocal_action_instruction(action)
+
+        self.assertIn("only this vocal action once", instruction)
+        self.assertIn("Do not say its label", instruction)
+        self.assertIn("character", instruction)
 
 
 class StoryPerformanceTests(unittest.TestCase):
@@ -230,6 +277,21 @@ class StoryPerformanceTests(unittest.TestCase):
 
         self.assertIn(token, {word for beat in plan.beats for word in beat.text.split()})
         self.assertEqual(" ".join(beat.text for beat in plan.beats), text)
+
+    def test_story_plan_preserves_vocal_action_as_its_own_beat(self) -> None:
+        plan = plan_story_performance(
+            "I never expected to see this place again. *sighs* We should go.",
+            "reflective",
+        )
+
+        action_beats = [beat for beat in plan.beats if beat.action]
+        speech_beats = [beat for beat in plan.beats if not beat.action]
+        self.assertEqual(len(action_beats), 1)
+        self.assertEqual(action_beats[0].role, "action")
+        self.assertEqual(action_beats[0].action, "sigh")
+        self.assertEqual(action_beats[0].text, "*Sighs*")
+        self.assertNotIn("*", " ".join(beat.text for beat in speech_beats))
+        self.assertIn("including 1 vocal action", plan.summary)
 
 
 if __name__ == "__main__":

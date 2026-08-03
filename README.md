@@ -172,6 +172,10 @@ boundaries. Select one delivery tag from Natural, Calm, Measured, Reflective,
 Warm, Wry, Guarded, Wounded, Resolute, Urgent, Questioning, or Sarcastic.
 Generated speech plays through the selected output and is saved under
 **Generated Takes** for replay, starring, Explorer access, or deletion.
+Vocal stage directions wrapped in asterisks are rendered as in-character
+nonverbal beats instead of spoken labels. Examples include `*sighs*`,
+`*laughs*`, `*gasps*`, `*coughs*`, `*groans*`, `*sobs*`, and `*dies*`.
+Normal emphasis such as `*very*` remains spoken dialogue.
 
 Choose **Storytelling** for monologues and narrative scenes. Vox Studio analyzes
 the pasted text as changing thought beats, preserves the exact wording, and

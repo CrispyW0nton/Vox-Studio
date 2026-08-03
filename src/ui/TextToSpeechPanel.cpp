@@ -202,7 +202,8 @@ TextToSpeechPanel::TextToSpeechPanel(QWidget* parent)
     editorLayout->addWidget(std::make_unique<QLabel>(QStringLiteral("Script")).release());
     m_textEdit = addOwnedWidget<QPlainTextEdit>(*editorLayout);
     m_textEdit->setObjectName(QStringLiteral("TextToSpeechEditor"));
-    m_textEdit->setPlaceholderText(QStringLiteral("Type or paste character dialogue"));
+    m_textEdit->setPlaceholderText(
+        QStringLiteral("I thought I was ready. *sighs* Let's try again."));
     m_textEdit->setMinimumHeight(250);
 
     editorLayout->addWidget(

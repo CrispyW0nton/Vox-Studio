@@ -134,6 +134,286 @@ _VIVID_WORDS = {
 
 
 @dataclass(frozen=True)
+class VocalAction:
+    name: str
+    display: str
+    synthesis_text: str
+    direction: str
+    pause_after: float
+
+
+@dataclass(frozen=True)
+class PerformanceScriptSegment:
+    text: str
+    action: VocalAction | None = None
+
+
+_VOCAL_ACTIONS = (
+    (
+        VocalAction(
+            name="death",
+            display="Death gasp",
+            synthesis_text="Ah... ngh...",
+            direction=(
+                "Perform one brief, believable in-character death gasp: a startled "
+                "vocal catch that weakens into a final breath. It is a nonverbal "
+                "human sound, not spoken dialogue."
+            ),
+            pause_after=0.42,
+        ),
+        (r"\bdies?\b", r"\bdying\b", r"\bdeath(?:\s+gasp|\s+sound)?\b"),
+    ),
+    (
+        VocalAction(
+            name="throat_clear",
+            display="Clears throat",
+            synthesis_text="Ahem.",
+            direction=(
+                "Clear the throat once, naturally and briefly, in the character's "
+                "voice. It is a nonverbal vocal action, not a spoken word."
+            ),
+            pause_after=0.20,
+        ),
+        (r"\bclear(?:s|ing)?(?:\s+(?:his|her|their|the))?\s+throat\b",),
+    ),
+    (
+        VocalAction(
+            name="chuckle",
+            display="Chuckles",
+            synthesis_text="Heh... heh.",
+            direction=(
+                "Give one quiet, natural in-character chuckle with restrained breath "
+                "and amusement. Do not turn it into spoken dialogue."
+            ),
+            pause_after=0.22,
+        ),
+        (r"\bchuckl(?:e|es|ed|ing)\b", r"\bsnicker(?:s|ed|ing)?\b"),
+    ),
+    (
+        VocalAction(
+            name="laugh",
+            display="Laughs",
+            synthesis_text="Ha, ha!",
+            direction=(
+                "Give one short, believable in-character laugh. Match the character's "
+                "natural vocal placement and do not say the name of the action."
+            ),
+            pause_after=0.24,
+        ),
+        (r"\blaugh(?:s|ed|ing)?\b", r"\bgiggl(?:e|es|ed|ing)\b"),
+    ),
+    (
+        VocalAction(
+            name="sigh",
+            display="Sighs",
+            synthesis_text="Haaah...",
+            direction=(
+                "Produce one natural audible in-character sigh: a voiced breath that "
+                "releases and fades. Keep it subtle unless the surrounding performance "
+                "is intense."
+            ),
+            pause_after=0.28,
+        ),
+        (r"\bsigh(?:s|ed|ing)?\b",),
+    ),
+    (
+        VocalAction(
+            name="gasp",
+            display="Gasps",
+            synthesis_text="Ah!",
+            direction=(
+                "Produce one brief involuntary in-character gasp with a sharp intake "
+                "of breath. It must sound like a reaction, not a spoken word."
+            ),
+            pause_after=0.16,
+        ),
+        (r"\bgasp(?:s|ed|ing)?\b",),
+    ),
+    (
+        VocalAction(
+            name="cough",
+            display="Coughs",
+            synthesis_text="Ahem. Ahem.",
+            direction=(
+                "Cough naturally once or twice in the character's voice. Keep it brief "
+                "and nonverbal; do not announce the action."
+            ),
+            pause_after=0.22,
+        ),
+        (r"\bcough(?:s|ed|ing)?\b",),
+    ),
+    (
+        VocalAction(
+            name="sob",
+            display="Sobs",
+            synthesis_text="Hh... hh...",
+            direction=(
+                "Give one restrained, believable in-character sob with an unsteady "
+                "breath. It is a nonverbal emotional sound, not dialogue."
+            ),
+            pause_after=0.30,
+        ),
+        (r"\bsob(?:s|bed|bing)?\b", r"\bcr(?:y|ies|ied|ying)\b"),
+    ),
+    (
+        VocalAction(
+            name="whimper",
+            display="Whimpers",
+            synthesis_text="Nnh...",
+            direction=(
+                "Make one soft, involuntary in-character whimper. Keep it human, "
+                "brief, and entirely nonverbal."
+            ),
+            pause_after=0.22,
+        ),
+        (r"\bwhimper(?:s|ed|ing)?\b",),
+    ),
+    (
+        VocalAction(
+            name="groan",
+            display="Groans",
+            synthesis_text="Nngh...",
+            direction=(
+                "Make one natural in-character groan that carries the surrounding "
+                "emotion. Do not pronounce or announce the stage direction."
+            ),
+            pause_after=0.24,
+        ),
+        (r"\bgroan(?:s|ed|ing)?\b", r"\bmoan(?:s|ed|ing)?\b"),
+    ),
+    (
+        VocalAction(
+            name="grunt",
+            display="Grunts",
+            synthesis_text="Hnh.",
+            direction=(
+                "Give one short, natural in-character grunt as a nonverbal reaction. "
+                "Do not add dialogue."
+            ),
+            pause_after=0.14,
+        ),
+        (r"\bgrunt(?:s|ed|ing)?\b",),
+    ),
+    (
+        VocalAction(
+            name="scream",
+            display="Screams",
+            synthesis_text="Aah!",
+            direction=(
+                "Perform one brief in-character cry or scream appropriate to the "
+                "moment. Preserve the character identity and do not say the action."
+            ),
+            pause_after=0.24,
+        ),
+        (
+            r"\bscream(?:s|ed|ing)?\b",
+            r"\bshriek(?:s|ed|ing)?\b",
+            r"\byelp(?:s|ed|ing)?\b",
+        ),
+    ),
+    (
+        VocalAction(
+            name="choke",
+            display="Chokes",
+            synthesis_text="Kh... ngh!",
+            direction=(
+                "Make one brief, believable in-character choking vocalization with "
+                "a caught breath. Keep it nonverbal and do not add words."
+            ),
+            pause_after=0.24,
+        ),
+        (r"\bchok(?:e|es|ed|ing)\b",),
+    ),
+    (
+        VocalAction(
+            name="inhale",
+            display="Inhales",
+            synthesis_text="Hh...",
+            direction=(
+                "Take one clearly audible, natural in-character breath in. Do not "
+                "speak or name the action."
+            ),
+            pause_after=0.10,
+        ),
+        (r"\binhal(?:e|es|ed|ing)\b", r"\bbreathes?\s+in\b"),
+    ),
+    (
+        VocalAction(
+            name="exhale",
+            display="Exhales",
+            synthesis_text="Haaah...",
+            direction=(
+                "Release one clearly audible, natural in-character breath out. Do not "
+                "speak or name the action."
+            ),
+            pause_after=0.18,
+        ),
+        (r"\bexhal(?:e|es|ed|ing)\b", r"\bbreathes?\s+out\b"),
+    ),
+)
+
+_STAGE_DIRECTION_PATTERN = re.compile(
+    r"(?<!\*)(?:\\)?(?P<marker>\*{1,2})\s*(?P<body>[^*\r\n]{1,80}?)"
+    r"\s*(?:\\)?(?P=marker)(?!\*)"
+)
+
+
+def vocal_action_for_cue(cue: str) -> VocalAction | None:
+    normalized = re.sub(r"[^a-z\s'-]", " ", cue.casefold())
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    for action, patterns in _VOCAL_ACTIONS:
+        if any(re.search(pattern, normalized) for pattern in patterns):
+            return action
+    return None
+
+
+def vocal_action_by_name(name: str) -> VocalAction | None:
+    normalized = re.sub(r"[^a-z_]", "", name.casefold())
+    return next(
+        (action for action, _ in _VOCAL_ACTIONS if action.name == normalized),
+        None,
+    )
+
+
+def vocal_action_instruction(action: VocalAction) -> str:
+    return " ".join(
+        (
+            action.direction,
+            "Render only this vocal action once.",
+            "Do not say its label, describe it, add words, or repeat it.",
+        )
+    )
+
+
+def parse_performance_script(text: str) -> tuple[PerformanceScriptSegment, ...]:
+    segments: list[PerformanceScriptSegment] = []
+    pending = ""
+    cursor = 0
+
+    def flush_pending() -> None:
+        nonlocal pending
+        normalized = re.sub(r"\s+", " ", pending).strip()
+        if normalized:
+            segments.append(PerformanceScriptSegment(text=normalized))
+        pending = ""
+
+    for match in _STAGE_DIRECTION_PATTERN.finditer(text):
+        pending += text[cursor : match.start()]
+        cue = match.group("body").strip()
+        action = vocal_action_for_cue(cue)
+        if action is None:
+            pending += cue
+        else:
+            flush_pending()
+            segments.append(PerformanceScriptSegment(text=cue, action=action))
+        cursor = match.end()
+
+    pending += text[cursor:]
+    flush_pending()
+    return tuple(segments)
+
+
+@dataclass(frozen=True)
 class StoryBeat:
     index: int
     role: str
@@ -142,6 +422,7 @@ class StoryBeat:
     direction: str
     emphasis: tuple[str, ...]
     pause_after: float
+    action: str = ""
 
 
 @dataclass(frozen=True)
@@ -417,6 +698,10 @@ def _operative_words(text: str, maximum_words: int = 3) -> tuple[str, ...]:
 
 
 def story_beat_instruction(beat: StoryBeat, overall: str = "natural") -> str:
+    if beat.action:
+        action = vocal_action_by_name(beat.action)
+        return vocal_action_instruction(action) if action is not None else beat.direction
+
     emphasis = ", ".join(beat.emphasis)
     baseline = normalized_delivery_tag(overall)
     continuity = (
@@ -451,16 +736,42 @@ def plan_story_performance(
     text: str,
     overall_delivery: str = "natural",
 ) -> StoryPlan:
-    thoughts = _story_thoughts(text)
-    count = len(thoughts)
+    script_items: list[str | PerformanceScriptSegment] = []
+    for segment in parse_performance_script(text):
+        if segment.action is not None:
+            script_items.append(segment)
+            continue
+        script_items.extend(_story_thoughts(segment.text))
+
+    count = sum(isinstance(item, str) for item in script_items)
     beats: list[StoryBeat] = []
-    for index, thought in enumerate(thoughts):
-        role = _story_role(index, count, thought)
+    speech_index = 0
+    for item in script_items:
+        if isinstance(item, PerformanceScriptSegment):
+            action = item.action
+            if action is None:
+                continue
+            beats.append(
+                StoryBeat(
+                    index=len(beats) + 1,
+                    role="action",
+                    text=f"*{action.display}*",
+                    delivery=normalized_delivery_tag(overall_delivery),
+                    direction=action.direction,
+                    emphasis=(),
+                    pause_after=action.pause_after,
+                    action=action.name,
+                )
+            )
+            continue
+
+        thought = item
+        role = _story_role(speech_index, count, thought)
         delivery = _story_delivery(role, thought, overall_delivery, count)
         emphasis = _operative_words(thought)
         beats.append(
             StoryBeat(
-                index=index + 1,
+                index=len(beats) + 1,
                 role=role,
                 text=thought,
                 delivery=delivery,
@@ -469,10 +780,18 @@ def plan_story_performance(
                 pause_after=_ROLE_PAUSES[role],
             )
         )
+        speech_index += 1
 
     arc = " -> ".join(dict.fromkeys(beat.role for beat in beats))
+    action_count = sum(bool(beat.action) for beat in beats)
     summary = (
-        f"{count} directed beat{'s' if count != 1 else ''} for one listener"
+        f"{len(beats)} directed beat{'s' if len(beats) != 1 else ''} for one listener"
+        + (
+            f", including {action_count} vocal action"
+            f"{'s' if action_count != 1 else ''}"
+            if action_count
+            else ""
+        )
         + (f": {arc}." if arc else ".")
     )
     return StoryPlan(

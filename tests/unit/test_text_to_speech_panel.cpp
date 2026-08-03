@@ -62,6 +62,7 @@ void TextToSpeechPanelTest::exposesLongFormEditorAndExclusiveDeliveryTags() {
     auto* editor = panel.findChild<QPlainTextEdit*>(QStringLiteral("TextToSpeechEditor"));
     QVERIFY(editor != nullptr);
     QVERIFY(editor->minimumHeight() >= 250);
+    QVERIFY(editor->placeholderText().contains(QStringLiteral("*sighs*")));
 
     auto* natural = panel.findChild<QPushButton*>(QStringLiteral("TextToSpeechDelivery_natural"));
     auto* reflective =
