@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 import tempfile
 import unittest
@@ -65,6 +66,36 @@ class DialogueCleaningTests(unittest.TestCase):
         self.assertIn("batch_size: 1", config)
         self.assertIn("num_workers: 0", config)
         self.assertIn("max_steps: 750", config)
+
+    def test_reads_exact_dialogue_manifest_for_character_corpus(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest = root / "dialogue_manifest.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "entries": {
+                            "003003kreia006.wav": {
+                                "text": "Save your pity. I am here to save you."
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            source = MODULE.VoiceSource(
+                name="Kreia",
+                audio_root=root,
+                tlk_path=root / "dialog.tlk",
+                dialogue_manifest=manifest,
+            )
+
+            mapping = MODULE.read_dialogue_mapping(source)
+
+        self.assertEqual(
+            mapping["003003kreia006"],
+            "Save your pity. I am here to save you.",
+        )
 
 
 class AudioPreparationTests(unittest.TestCase):

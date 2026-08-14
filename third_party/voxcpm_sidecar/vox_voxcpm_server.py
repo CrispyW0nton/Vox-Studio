@@ -38,9 +38,12 @@ from vox_delivery import (
 )
 from vox_profiles import (
     activate_lora,
+    anchor_direction_adjustment,
     control_identity_instruction,
     generation_options,
     resolve_profile_asset,
+    resolve_profile_vocal_actions,
+    select_vocal_action_asset,
     synthesis_inputs,
     text_identity_instruction,
 )
@@ -102,6 +105,8 @@ class TextSynthesisSection:
     instruction: str
     pause_after: float
     seed: int
+    audio_path: Path | None = None
+    action_source: str = ""
 
 
 torch.set_float32_matmul_precision("high")
@@ -358,7 +363,7 @@ def select_style_anchor(
             anchor_delivery,
             transcript,
             anchor_text,
-        )
+        ) + anchor_direction_adjustment(anchor, delivery.label)
 
     selected = min(anchors, key=distance)
     selected_path = (profile_dir / selected["audio"]).resolve()
@@ -493,7 +498,7 @@ def text_synthesis_section(
     target_features, target_delivery = text_delivery_target(delivery_tag)
     style_anchor = (
         None
-        if force_controlled
+        if force_controlled or profile.get("use_stable_character_identity", False)
         else select_style_anchor(
             profile,
             profile_dir,
@@ -525,6 +530,75 @@ def text_synthesis_section(
     )
 
 
+def vocal_action_audio(
+    profile: dict,
+    profile_dir: Path,
+    action_name: str,
+    cue: str,
+    delivery_tag: str,
+    seed: int,
+    avoid_path: Path | None = None,
+):
+    try:
+        assets = resolve_profile_vocal_actions(profile, profile_dir, action_name)
+        return select_vocal_action_asset(
+            assets,
+            cue,
+            delivery_tag,
+            seed,
+            avoid_path,
+        )
+    except ValueError as exception:
+        raise HTTPException(status_code=500, detail=str(exception)) from exception
+
+
+def vocal_action_section(
+    profile: dict,
+    profile_dir: Path,
+    reference_path: Path,
+    text: str,
+    delivery_tag: str,
+    instruction: str,
+    pause_after: float,
+    seed: int,
+    action_asset,
+) -> TextSynthesisSection:
+    if action_asset is not None and action_asset.mode == "prompt":
+        return TextSynthesisSection(
+            text=text,
+            prompt_path=action_asset.path,
+            prompt_text=action_asset.prompt_text,
+            reference_path=action_asset.path,
+            instruction="",
+            pause_after=pause_after,
+            seed=seed,
+            action_source=action_asset.source,
+        )
+    if action_asset is not None and action_asset.mode == "direct":
+        return TextSynthesisSection(
+            text=text,
+            prompt_path=reference_path,
+            prompt_text="",
+            reference_path=reference_path,
+            instruction="",
+            pause_after=pause_after,
+            seed=seed,
+            audio_path=action_asset.path,
+            action_source=action_asset.source,
+        )
+    return text_synthesis_section(
+        profile=profile,
+        profile_dir=profile_dir,
+        reference_path=reference_path,
+        text=text,
+        delivery_tag=delivery_tag,
+        instruction=instruction,
+        pause_after=pause_after,
+        seed=seed,
+        force_controlled=True,
+    )
+
+
 def text_synthesis_sections(
     profile: dict,
     profile_dir: Path,
@@ -534,6 +608,7 @@ def text_synthesis_sections(
     performance_mode: str,
 ) -> tuple[TextSynthesisSection, ...]:
     sections: list[TextSynthesisSection] = []
+    last_action_paths: dict[str, Path] = {}
     story_plan = (
         plan_story_performance(text, delivery_tag)
         if performance_mode == STORYTELLING_MODE
@@ -543,32 +618,66 @@ def text_synthesis_sections(
         for beat in story_plan.beats:
             action = vocal_action_by_name(beat.action) if beat.action else None
             section_text = action.synthesis_text if action is not None else beat.text
-            sections.append(
-                text_synthesis_section(
-                    profile=profile,
-                    profile_dir=profile_dir,
-                    reference_path=reference_path,
-                    text=section_text,
-                    delivery_tag=beat.delivery,
-                    instruction=" ".join(
-                        value
-                        for value in (
-                            text_identity_instruction(profile),
-                            story_beat_instruction(beat, delivery_tag),
-                        )
-                        if value
-                    ),
-                    pause_after=beat.pause_after,
-                    seed=synthesis_seed(len(sections), section_text),
-                    force_controlled=action is not None,
+            section_seed = synthesis_seed(len(sections), section_text)
+            action_asset = (
+                vocal_action_audio(
+                    profile,
+                    profile_dir,
+                    action.name,
+                    beat.action_cue or beat.text,
+                    beat.delivery,
+                    section_seed,
+                    last_action_paths.get(action.name),
                 )
+                if action is not None
+                else None
             )
+            if action is not None and action_asset is not None:
+                last_action_paths[action.name] = action_asset.path
+            section_arguments = dict(
+                profile=profile,
+                profile_dir=profile_dir,
+                reference_path=reference_path,
+                text=section_text,
+                delivery_tag=beat.delivery,
+                instruction=" ".join(
+                    value
+                    for value in (
+                        text_identity_instruction(profile),
+                        story_beat_instruction(beat, delivery_tag),
+                    )
+                    if value
+                ),
+                pause_after=beat.pause_after,
+                seed=section_seed,
+            )
+            if action is not None:
+                sections.append(
+                    vocal_action_section(
+                        **section_arguments,
+                        action_asset=action_asset,
+                    )
+                )
+            else:
+                sections.append(text_synthesis_section(**section_arguments))
         return tuple(sections)
 
     speech_instruction = text_control_instruction(profile, delivery_tag)
     for segment in parse_performance_script(text):
         if segment.action is not None:
             action = segment.action
+            section_seed = synthesis_seed(len(sections), segment.text)
+            action_asset = vocal_action_audio(
+                profile,
+                profile_dir,
+                action.name,
+                segment.text,
+                delivery_tag,
+                section_seed,
+                last_action_paths.get(action.name),
+            )
+            if action_asset is not None:
+                last_action_paths[action.name] = action_asset.path
             instruction = " ".join(
                 value
                 for value in (
@@ -578,7 +687,7 @@ def text_synthesis_sections(
                 if value
             )
             sections.append(
-                text_synthesis_section(
+                vocal_action_section(
                     profile=profile,
                     profile_dir=profile_dir,
                     reference_path=reference_path,
@@ -586,8 +695,8 @@ def text_synthesis_sections(
                     delivery_tag=delivery_tag,
                     instruction=instruction,
                     pause_after=action.pause_after,
-                    seed=synthesis_seed(len(sections), action.synthesis_text),
-                    force_controlled=True,
+                    seed=section_seed,
+                    action_asset=action_asset,
                 )
             )
             continue
@@ -663,6 +772,22 @@ def finished_text_audio(
             dtype=np.float32,
         )
     return output
+
+
+def load_vocal_action_audio(
+    path: Path,
+    target_sample_rate: int = 48000,
+) -> tuple[np.ndarray, int]:
+    clip, sample_rate = sf.read(path, dtype="float32", always_2d=True)
+    mono = clip.mean(axis=1)
+    if sample_rate != target_sample_rate:
+        mono = librosa.resample(
+            mono,
+            orig_sr=sample_rate,
+            target_sr=target_sample_rate,
+            res_type="soxr_hq",
+        )
+    return np.asarray(mono, dtype=np.float32), target_sample_rate
 
 
 def text_pause_seconds(section: str) -> float:
@@ -842,6 +967,7 @@ async def render_text(
 
     started = time.perf_counter()
     output_pcm = bytearray()
+    action_audio_cache: dict[Path, tuple[np.ndarray, int]] = {}
     matched_pronunciations: list[str] = []
     output_sample_rate = 0
 
@@ -852,23 +978,42 @@ async def render_text(
                     status_code=499,
                     detail="Text performance cancelled because the client disconnected.",
                 )
-            pronunciation = apply_pronunciations(section.text, pronunciations)
-            for term in pronunciation.matched_terms:
-                if term not in matched_pronunciations:
-                    matched_pronunciations.append(term)
-            rendered, section_sample_rate = await asyncio.wrap_future(
-                model_executor.submit(
-                    synthesize,
-                    pronunciation.text,
-                    section.prompt_path,
-                    section.prompt_text,
-                    section.reference_path,
-                    profile,
-                    section.instruction,
-                    lora_path,
-                    section.seed,
+            if section.audio_path is not None:
+                cached_action = action_audio_cache.get(section.audio_path)
+                if cached_action is None:
+                    cached_action = await asyncio.to_thread(
+                        load_vocal_action_audio,
+                        section.audio_path,
+                    )
+                    action_audio_cache[section.audio_path] = cached_action
+                rendered = cached_action[0].copy()
+                section_sample_rate = cached_action[1]
+            else:
+                pronunciation = apply_pronunciations(section.text, pronunciations)
+                for term in pronunciation.matched_terms:
+                    if term not in matched_pronunciations:
+                        matched_pronunciations.append(term)
+                rendered, section_sample_rate = await asyncio.wrap_future(
+                    model_executor.submit(
+                        synthesize,
+                        pronunciation.text,
+                        section.prompt_path,
+                        section.prompt_text,
+                        section.reference_path,
+                        profile,
+                        section.instruction,
+                        lora_path,
+                        section.seed,
+                    )
                 )
-            )
+                if section_sample_rate != 48000:
+                    rendered = librosa.resample(
+                        np.asarray(rendered, dtype=np.float32),
+                        orig_sr=section_sample_rate,
+                        target_sr=48000,
+                        res_type="soxr_hq",
+                    )
+                    section_sample_rate = 48000
             if output_sample_rate and output_sample_rate != section_sample_rate:
                 raise HTTPException(
                     status_code=500,
@@ -902,6 +1047,18 @@ async def render_text(
         ),
         "X-Vox-Adapter": "trained" if lora_path else "base",
         "X-Vox-Section-Count": str(len(synthesis_sections)),
+        "X-Vox-Vocal-Action-Count": str(
+            sum(section.audio_path is not None for section in synthesis_sections)
+        ),
+        "X-Vox-Vocal-Action-Sources": urllib.parse.quote(
+            ", ".join(
+                dict.fromkeys(
+                    section.action_source
+                    for section in synthesis_sections
+                    if section.action_source
+                )
+            )[:500]
+        ),
         "X-Vox-Performance-Mode": performance_mode,
         "X-Vox-Style-Mode": (
             "performance matched"

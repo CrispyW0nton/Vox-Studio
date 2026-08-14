@@ -11,9 +11,12 @@ sys.path.insert(0, str(SIDECAR_ROOT))
 
 from vox_profiles import (  # noqa: E402
     activate_lora,
+    anchor_direction_adjustment,
     control_identity_instruction,
     generation_options,
     resolve_profile_asset,
+    resolve_profile_vocal_actions,
+    select_vocal_action_asset,
     synthesis_inputs,
     text_identity_instruction,
 )
@@ -128,6 +131,162 @@ class ProfileAssetTests(unittest.TestCase):
                     root,
                     "lora_adapter",
                 )
+
+    def test_resolves_character_vocal_action_inside_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            death = root / "actions" / "death.wav"
+            death.parent.mkdir()
+            death.write_bytes(b"wave")
+
+            resolved = resolve_profile_vocal_actions(
+                {"vocal_actions": {"death": "actions/death.wav"}},
+                root,
+                "death",
+            )
+
+        self.assertEqual(resolved[0].path, death.resolve())
+
+    def test_rejects_character_vocal_action_outside_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "profile"
+            root.mkdir()
+            outside = root.parent / "death.wav"
+            outside.write_bytes(b"wave")
+
+            with self.assertRaises(ValueError):
+                resolve_profile_vocal_actions(
+                    {"vocal_actions": {"death": "..\\death.wav"}},
+                    root,
+                    "death",
+                )
+
+    def test_resolves_multiple_tagged_character_vocal_actions(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            actions = root / "actions"
+            actions.mkdir()
+            (actions / "laugh_dry.wav").write_bytes(b"wave")
+            (actions / "laugh_pained.wav").write_bytes(b"wave")
+            profile = {
+                "vocal_actions": {
+                    "laugh": [
+                        {
+                            "audio": "actions/laugh_dry.wav",
+                            "tags": ["dry", "restrained"],
+                            "intensity": 0.3,
+                        },
+                        {
+                            "audio": "actions/laugh_pained.wav",
+                            "tags": ["pained"],
+                            "intensity": 0.7,
+                        },
+                    ]
+                }
+            }
+
+            assets = resolve_profile_vocal_actions(profile, root, "laugh")
+            selected = select_vocal_action_asset(
+                assets,
+                "pained laugh",
+                "wounded",
+                42,
+            )
+
+        self.assertEqual(len(assets), 2)
+        self.assertEqual(selected.path.name, "laugh_pained.wav")
+
+    def test_avoids_immediate_repetition_when_variants_are_equivalent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            actions = root / "actions"
+            actions.mkdir()
+            for name in ("grunt_1.wav", "grunt_2.wav"):
+                (actions / name).write_bytes(b"wave")
+            assets = resolve_profile_vocal_actions(
+                {
+                    "vocal_actions": {
+                        "grunt": [
+                            {"audio": "actions/grunt_1.wav", "intensity": 0.5},
+                            {"audio": "actions/grunt_2.wav", "intensity": 0.5},
+                        ]
+                    }
+                },
+                root,
+                "grunt",
+            )
+            first = select_vocal_action_asset(assets, "grunt", "natural", 0)
+            second = select_vocal_action_asset(
+                assets,
+                "grunt",
+                "natural",
+                0,
+                avoid_path=first.path,
+            )
+
+        self.assertNotEqual(first.path, second.path)
+
+    def test_prefers_direct_reaction_over_prompt_synthesis(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            actions = root / "actions"
+            actions.mkdir()
+            (actions / "sigh_direct.wav").write_bytes(b"wave")
+            (actions / "sigh_prompt.wav").write_bytes(b"wave")
+            assets = resolve_profile_vocal_actions(
+                {
+                    "vocal_actions": {
+                        "sigh": [
+                            {
+                                "audio": "actions/sigh_prompt.wav",
+                                "tags": ["reflective", "restrained"],
+                                "intensity": 0.35,
+                                "mode": "prompt",
+                                "prompt_text": "A reflective line.",
+                            },
+                            {
+                                "audio": "actions/sigh_direct.wav",
+                                "tags": ["reflective", "restrained"],
+                                "intensity": 0.35,
+                                "mode": "direct",
+                            },
+                        ]
+                    }
+                },
+                root,
+                "sigh",
+            )
+
+            selected = select_vocal_action_asset(
+                assets,
+                "quiet sigh",
+                "reflective",
+                0,
+            )
+
+        self.assertEqual(selected.path.name, "sigh_direct.wav")
+
+
+class AnchorDirectionTests(unittest.TestCase):
+    def test_prefers_exact_directed_emotion(self) -> None:
+        anchor = {"delivery_tags": ["reflective", "wounded"]}
+
+        self.assertLess(anchor_direction_adjustment(anchor, "reflective"), 0.0)
+        self.assertLess(anchor_direction_adjustment(anchor, "wounded"), 0.0)
+        self.assertGreater(anchor_direction_adjustment(anchor, "urgent"), 0.0)
+
+    def test_accepts_related_emotion_without_treating_it_as_exact(self) -> None:
+        exact = anchor_direction_adjustment(
+            {"delivery_tags": ["sarcastic"]},
+            "sarcastic",
+        )
+        related = anchor_direction_adjustment(
+            {"delivery_tags": ["wry"]},
+            "sarcastic",
+        )
+
+        self.assertLess(exact, related)
+        self.assertLess(related, 0.0)
 
 
 class GenerationOptionTests(unittest.TestCase):

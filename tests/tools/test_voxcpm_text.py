@@ -132,6 +132,26 @@ class PerformanceCueTests(unittest.TestCase):
         self.assertIn("Do not say its label", instruction)
         self.assertIn("character", instruction)
 
+    def test_recognizes_effort_and_pain_reactions(self) -> None:
+        segments = parse_performance_script(
+            "Lift it. *strained effort* Now move. *cries out in pain*"
+        )
+
+        self.assertEqual(segments[1].action.name, "effort")
+        self.assertEqual(segments[3].action.name, "pain")
+
+    def test_recognizes_gerund_pain_reaction_without_speaking_label(self) -> None:
+        segments = parse_performance_script("Stop. *crying out in pain*")
+
+        self.assertEqual(
+            [segment.action.name for segment in segments if segment.action],
+            ["pain"],
+        )
+        spoken = " ".join(
+            segment.text for segment in segments if segment.action is None
+        )
+        self.assertNotIn("crying out in pain", spoken)
+
 
 class StoryPerformanceTests(unittest.TestCase):
     def test_atton_story_beats_preserve_every_word_and_build_an_arc(self) -> None:
@@ -290,8 +310,16 @@ class StoryPerformanceTests(unittest.TestCase):
         self.assertEqual(action_beats[0].role, "action")
         self.assertEqual(action_beats[0].action, "sigh")
         self.assertEqual(action_beats[0].text, "*Sighs*")
+        self.assertEqual(action_beats[0].action_cue, "sighs")
         self.assertNotIn("*", " ".join(beat.text for beat in speech_beats))
         self.assertIn("including 1 vocal action", plan.summary)
+
+    def test_story_plan_preserves_action_delivery_modifiers(self) -> None:
+        plan = plan_story_performance("Wait. *quiet pained laugh*", "natural")
+
+        action_beat = next(beat for beat in plan.beats if beat.action)
+        self.assertEqual(action_beat.text, "*Laughs*")
+        self.assertEqual(action_beat.action_cue, "quiet pained laugh")
 
 
 if __name__ == "__main__":

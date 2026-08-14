@@ -253,7 +253,10 @@ _VOCAL_ACTIONS = (
             ),
             pause_after=0.30,
         ),
-        (r"\bsob(?:s|bed|bing)?\b", r"\bcr(?:y|ies|ied|ying)\b"),
+        (
+            r"\bsob(?:s|bed|bing)?\b",
+            r"\b(?:cry|cries|cried|crying)\b(?!\s+out\s+in\s+pain)",
+        ),
     ),
     (
         VocalAction(
@@ -293,6 +296,42 @@ _VOCAL_ACTIONS = (
             pause_after=0.14,
         ),
         (r"\bgrunt(?:s|ed|ing)?\b",),
+    ),
+    (
+        VocalAction(
+            name="effort",
+            display="Effort sound",
+            synthesis_text="Hnh!",
+            direction=(
+                "Give one natural in-character exertion sound matching the "
+                "requested physical effort and intensity. Do not add words."
+            ),
+            pause_after=0.12,
+        ),
+        (
+            r"\beffort(?:\s+sound)?\b",
+            r"\bexert(?:s|ed|ing|ion)?\b",
+            r"\bstrain(?:s|ed|ing)?\b",
+            r"\bheav(?:e|es|ed|ing)\b",
+        ),
+    ),
+    (
+        VocalAction(
+            name="pain",
+            display="Pain reaction",
+            synthesis_text="Ah!",
+            direction=(
+                "Give one involuntary in-character pain reaction with intensity "
+                "appropriate to the direction. Keep it brief and nonverbal."
+            ),
+            pause_after=0.18,
+        ),
+        (
+            r"\bpain(?:ful|ed)?\s+(?:reaction|cry|sound)\b",
+            r"\b(?:cry|cries|cried|crying)\s+out\s+in\s+pain\b",
+            r"\breacts?\s+in\s+pain\b",
+            r"\btakes?\s+a\s+hit\b",
+        ),
     ),
     (
         VocalAction(
@@ -423,6 +462,7 @@ class StoryBeat:
     emphasis: tuple[str, ...]
     pause_after: float
     action: str = ""
+    action_cue: str = ""
 
 
 @dataclass(frozen=True)
@@ -761,6 +801,7 @@ def plan_story_performance(
                     emphasis=(),
                     pause_after=action.pause_after,
                     action=action.name,
+                    action_cue=item.text,
                 )
             )
             continue

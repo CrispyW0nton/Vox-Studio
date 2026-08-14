@@ -33,6 +33,7 @@ class VoiceSource:
     dlg_path: Path | None = None
     voiceover_prefix: str = ""
     excluded_globs: tuple[str, ...] = ()
+    dialogue_manifest: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,12 @@ def default_sources() -> dict[str, VoiceSource]:
                 / "baodur.dlg"
             ),
             voiceover_prefix="gblbaodur",
+        ),
+        "kreia": VoiceSource(
+            name="Kreia",
+            audio_root=voices / "KreiaDecoded",
+            tlk_path=steam / "Knights of the Old Republic II" / "dialog.tlk",
+            dialogue_manifest=voices / "KreiaDecoded" / "dialogue_manifest.json",
         ),
     }
 
@@ -100,6 +107,23 @@ def split_name(source_audio: Path) -> str:
 
 
 def read_dialogue_mapping(source: VoiceSource) -> dict[str, str]:
+    if source.dialogue_manifest is not None:
+        if not source.dialogue_manifest.is_file():
+            raise RuntimeError(
+                f"Character dialogue manifest is missing: {source.dialogue_manifest}"
+            )
+        manifest = json.loads(source.dialogue_manifest.read_text(encoding="utf-8"))
+        entries = manifest.get("entries", {})
+        if not isinstance(entries, dict):
+            raise RuntimeError("Character dialogue manifest entries are invalid.")
+        return {
+            Path(str(filename)).stem.casefold(): clean_dialogue_text(
+                str(value.get("text", ""))
+            )
+            for filename, value in entries.items()
+            if isinstance(value, dict) and str(value.get("text", "")).strip()
+        }
+
     try:
         from pykotor.resource.formats.tlk import read_tlk
     except ImportError as exception:
@@ -337,7 +361,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Prepare exact KOTOR dialogue/audio pairs for VoxCPM2 fine-tuning."
     )
-    parser.add_argument("--voice", choices=("carth", "bao-dur"), required=True)
+    sources = default_sources()
+    parser.add_argument("--voice", choices=tuple(sources), required=True)
     parser.add_argument(
         "--output-root",
         type=Path,
@@ -345,7 +370,7 @@ def main() -> None:
     )
     parser.add_argument("--max-steps", type=int, default=1000)
     arguments = parser.parse_args()
-    source = default_sources()[arguments.voice]
+    source = sources[arguments.voice]
     output_root = arguments.output_root / arguments.voice
     output_root.mkdir(parents=True, exist_ok=True)
     mapping = read_dialogue_mapping(source)

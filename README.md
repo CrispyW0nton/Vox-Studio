@@ -94,6 +94,8 @@ Important subfolders:
 - `voxcpm_profiles\` - local character identity references and profile metadata.
 - `voxcpm_training\` - prepared 16 kHz manifests and local LoRA checkpoints.
 - `voxcpm_sidecar\` - phrase-live transcription and rendering service.
+- `generated_vocal_actions\` - cached character laughs, sighs, and other
+  nonverbal performances generated locally for profile use.
 
 Do not commit API keys, voice models, ONNX models, signing keys, or generated
 project data. `.gitignore` is set up to keep those out of source control.
@@ -176,6 +178,14 @@ Vocal stage directions wrapped in asterisks are rendered as in-character
 nonverbal beats instead of spoken labels. Examples include `*sighs*`,
 `*laughs*`, `*gasps*`, `*coughs*`, `*groans*`, `*sobs*`, and `*dies*`.
 Normal emphasis such as `*very*` remains spoken dialogue.
+
+Vocal reactions use a separate performance bank rather than asking the speech
+model to pronounce an action. Clean licensed reaction clips are used directly
+for effort, pain, gasps, screams, and death sounds. Missing reactions can be
+generated offline with Dia from a character profile, reviewed once, and cached;
+they are never generated in the middle of playback. Direct cached audio is
+preferred over prompt-based fallbacks so a weak synthetic sigh cannot replace a
+verified performance.
 
 Choose **Storytelling** for monologues and narrative scenes. Vox Studio analyzes
 the pasted text as changing thought beats, preserves the exact wording, and
@@ -261,6 +271,22 @@ Then rebuild the profiles:
 & "$env:LOCALAPPDATA\VoxStudio\engines\voxcpm2\.venv\Scripts\python.exe" `
   tools\prepare_voxcpm_profiles.py
 ```
+
+To prepare local character-specific laughs, sighs, and chuckles, install the
+isolated Dia action runtime and generate a reviewable cache before rebuilding:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\install_dia_actions.ps1
+
+& "$env:LOCALAPPDATA\VoxStudio\engines\dia-actions\.venv\Scripts\python.exe" `
+  tools\prepare_paralinguistic_actions.py `
+  --voice-id YOUR_VOICE_ID `
+  --action sigh --action laugh --action chuckle --variants 2
+```
+
+Dia and VoxCPM2 are used from their upstream projects and downloaded into local
+runtime folders. Generated reaction WAVs, licensed source recordings, manifests,
+and character adapters remain local and are not distributed by Vox Studio.
 
 Pass `--voice "Carth"` or `--voice "Bao-Dur"` to rebuild one profile. The
 builder installs a completed local adapter into the matching voice profile.

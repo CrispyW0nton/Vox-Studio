@@ -6,6 +6,7 @@ import math
 import os
 import re
 import shutil
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,6 +21,20 @@ SAMPLE_RATE = 48000
 WINDOW_SECONDS = 4.0
 REFERENCE_SECONDS = 24.0
 SUPPORTED_EXTENSIONS = {".wav", ".mp3", ".flac", ".ogg", ".opus"}
+
+
+@dataclass(frozen=True)
+class VocalActionSource:
+    name: str
+    source: Path
+    start_seconds: float = 0.0
+    end_seconds: float | None = None
+    tags: tuple[str, ...] = ()
+    intensity: float = 0.5
+    source_label: str = ""
+    mode: str = "direct"
+    prompt_text: str = ""
+    authentic: bool = True
 
 
 @dataclass(frozen=True)
@@ -39,6 +54,147 @@ class ProfileSpec:
     lora_training_name: str = ""
     use_stable_character_identity: bool = False
     delivery_profile: str = ""
+    vocal_actions: tuple[VocalActionSource, ...] = ()
+
+
+def combat_vocal_actions(root: Path, prefix: str) -> tuple[VocalActionSource, ...]:
+    return (
+        VocalActionSource(
+            "death",
+            root / f"{prefix}Dead.wav",
+            tags=("pained", "dying", "forceful"),
+            intensity=0.95,
+        ),
+        VocalActionSource(
+            "grunt",
+            root / f"{prefix}Atk1.wav",
+            tags=("effort", "restrained"),
+            intensity=0.4,
+        ),
+        VocalActionSource(
+            "grunt",
+            root / f"{prefix}Atk2.wav",
+            tags=("effort",),
+            intensity=0.6,
+        ),
+        VocalActionSource(
+            "grunt",
+            root / f"{prefix}Atk3.wav",
+            tags=("effort", "forceful"),
+            intensity=0.8,
+        ),
+        VocalActionSource(
+            "effort",
+            root / f"{prefix}Atk1.wav",
+            tags=("effort", "restrained"),
+            intensity=0.4,
+        ),
+        VocalActionSource(
+            "effort",
+            root / f"{prefix}Atk2.wav",
+            tags=("effort",),
+            intensity=0.6,
+        ),
+        VocalActionSource(
+            "effort",
+            root / f"{prefix}Atk3.wav",
+            tags=("effort", "forceful"),
+            intensity=0.8,
+        ),
+        VocalActionSource(
+            "gasp",
+            root / f"{prefix}Hit1.wav",
+            tags=("pained", "startled"),
+            intensity=0.7,
+        ),
+        VocalActionSource(
+            "groan",
+            root / f"{prefix}Hit2.wav",
+            tags=("pained",),
+            intensity=0.65,
+        ),
+        VocalActionSource(
+            "pain",
+            root / f"{prefix}Hit1.wav",
+            tags=("pained", "startled"),
+            intensity=0.7,
+        ),
+        VocalActionSource(
+            "pain",
+            root / f"{prefix}Hit2.wav",
+            tags=("pained",),
+            intensity=0.65,
+        ),
+    )
+
+
+def generated_vocal_actions(voice_id: str) -> tuple[VocalActionSource, ...]:
+    bank_root = (
+        Path(os.environ["LOCALAPPDATA"])
+        / "VoxStudio"
+        / "generated_vocal_actions"
+        / voice_id
+    )
+    manifest_path = bank_root / "manifest.json"
+    if not manifest_path.is_file():
+        return ()
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ()
+    if str(manifest.get("voice_id", "")).strip() != voice_id:
+        return ()
+
+    resolved_root = bank_root.resolve()
+    sources: list[VocalActionSource] = []
+    entries = manifest.get("entries", [])
+    if not isinstance(entries, list):
+        return ()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        name = re.sub(r"[^a-z_]", "", str(entry.get("name", "")).casefold())
+        relative = str(entry.get("audio", "")).strip()
+        source = (bank_root / relative).resolve()
+        if (
+            not name
+            or resolved_root not in source.parents
+            or not source.is_file()
+        ):
+            continue
+        try:
+            intensity = float(entry.get("intensity", 0.5))
+        except (TypeError, ValueError):
+            intensity = 0.5
+        try:
+            duration = float(entry.get("duration_seconds", 0.0))
+        except (TypeError, ValueError):
+            duration = 0.0
+        if duration and not 0.18 <= duration < 3.5:
+            continue
+        tags = tuple(
+            dict.fromkeys(
+                str(tag).strip().casefold()
+                for tag in entry.get("tags", [])
+                if str(tag).strip()
+            )
+        )
+        sources.append(
+            VocalActionSource(
+                name=name,
+                source=source,
+                tags=tags,
+                intensity=max(0.0, min(1.0, intensity)),
+                source_label=str(
+                    entry.get(
+                        "source",
+                        "Locally generated character reaction",
+                    )
+                ),
+                authentic=False,
+            )
+        )
+    return tuple(sources)
 
 
 def default_specs() -> tuple[ProfileSpec, ...]:
@@ -46,6 +202,11 @@ def default_specs() -> tuple[ProfileSpec, ...]:
     voices = documents / "KotorMods" / "Voices"
     kotor_project = Path.home() / "Kotor.vox"
     local_app_data = Path(os.environ["LOCALAPPDATA"]) / "VoxStudio"
+    kotor1 = Path(r"C:\Program Files (x86)\Steam\steamapps\common\swkotor")
+    kotor2 = (
+        Path(r"C:\Program Files (x86)\Steam\steamapps\common")
+        / "Knights of the Old Republic II"
+    )
     alan_takes = tuple((kotor_project / "takes").rglob("*.opus"))
     return (
         ProfileSpec(
@@ -70,17 +231,63 @@ def default_specs() -> tuple[ProfileSpec, ...]:
             lora_training_name="carth",
             use_stable_character_identity=True,
             delivery_profile="carth",
+            vocal_actions=combat_vocal_actions(
+                kotor1 / "streamsounds",
+                "P_CARTH_",
+            ),
         ),
         ProfileSpec(
             ("zsJfu6NHUhZIGZKxw0w0",),
             "Kreia",
-            (voices / "RvcDatasets" / "KreiaDecoded101",),
+            (
+                voices / "RvcDatasets" / "KreiaDecoded",
+                voices / "RvcDatasets" / "KreiaDecoded101",
+            ),
             voices / "RvcDatasets" / "KreiaDecoded101" / "101101kreia030.wav",
             (
                 "I am Kreia, and I am your rescuer, as you are mine. "
                 "Tell me, do you recall what happened?"
             ),
-            cfg_value=2.5,
+            cfg_value=2.0,
+            style_anchor_count=96,
+            control_instruction=(
+                "Keep Kreia's aged low contralto, precise diction, deliberate "
+                "cadence, and severe restraint. Preserve the intended emotion "
+                "without flattening it or becoming theatrical."
+            ),
+            use_controlled_cloning=True,
+            controlled_cfg_value=2.0,
+            lora_training_name="kreia",
+            use_stable_character_identity=True,
+            delivery_profile="kreia",
+            vocal_actions=combat_vocal_actions(
+                kotor2 / "StreamSounds",
+                "p_Kreia_",
+            )
+            + (
+                VocalActionSource(
+                    "gasp",
+                    kotor2
+                    / "StreamVoice"
+                    / "904"
+                    / "904KREIA"
+                    / "904904KREIA960.wav",
+                    tags=("pained", "startled", "forceful"),
+                    intensity=0.9,
+                    source_label="Kreia half-health pain cry",
+                ),
+                VocalActionSource(
+                    "death",
+                    kotor2
+                    / "StreamVoice"
+                    / "904"
+                    / "904KREIA"
+                    / "904904KREIA962.wav",
+                    tags=("pained", "dying", "weary"),
+                    intensity=0.75,
+                    source_label="Kreia weak final cry",
+                ),
+            ),
         ),
         ProfileSpec(
             ("VqtR5ry1ddcv59m6Wvqg",),
@@ -99,6 +306,36 @@ def default_specs() -> tuple[ProfileSpec, ...]:
             ),
             use_controlled_cloning=True,
             controlled_cfg_value=3.0,
+            vocal_actions=combat_vocal_actions(
+                kotor2 / "StreamSounds",
+                "p_Atton_",
+            )
+            + (
+                VocalActionSource(
+                    "laugh",
+                    kotor2
+                    / "StreamVoice"
+                    / "904"
+                    / "904ATTON"
+                    / "904904ATTON007.wav",
+                    0.0,
+                    0.72,
+                    tags=("dry", "pained", "restrained"),
+                    intensity=0.45,
+                    source_label="Atton's dry pained chuckle",
+                ),
+                VocalActionSource(
+                    "scream",
+                    kotor2
+                    / "StreamVoice"
+                    / "003"
+                    / "003ATTON"
+                    / "003003ATTON106.wav",
+                    tags=("forceful", "victorious"),
+                    intensity=0.95,
+                    source_label="Atton victory cry",
+                ),
+            ),
         ),
         ProfileSpec(
             ("0KRk8sPqojm2YNRCGKqu",),
@@ -116,6 +353,18 @@ def default_specs() -> tuple[ProfileSpec, ...]:
             controlled_cfg_value=1.5,
             lora_training_name="bao-dur",
             use_stable_character_identity=True,
+            vocal_actions=combat_vocal_actions(
+                kotor2 / "StreamSounds",
+                "p_BaoDur_",
+            )
+            + (
+                VocalActionSource(
+                    "scream",
+                    kotor2 / "StreamSounds" / "p_BaoDur_Atk2.wav",
+                    tags=("effort", "forceful"),
+                    intensity=0.9,
+                ),
+            ),
         ),
         ProfileSpec(
             ("ubAJyJphmwzPmKNsS9W6",),
@@ -195,12 +444,15 @@ def build_reference(
     files: list[Path],
     primary_prompt: Path | None,
     style_anchor_count: int,
+    preferred_paths: set[Path] | None = None,
+    delivery_tags_by_path: dict[Path, tuple[str, ...]] | None = None,
 ) -> tuple[np.ndarray, list[tuple[float, np.ndarray, Path]]]:
     candidates = candidate_windows(files)
     if not candidates:
         raise RuntimeError("No usable speech was found in the configured source files.")
 
-    candidates.sort(key=lambda item: item[0])
+    preferred = preferred_paths or set()
+    candidates.sort(key=lambda item: (item[3] not in preferred, item[0]))
     selected_candidates: list[tuple[float, int, int, Path]] = []
     used_paths: set[Path] = set()
     target_count = max(1, style_anchor_count)
@@ -210,6 +462,21 @@ def build_reference(
         primary_audio, _ = librosa.effects.trim(primary_audio, top_db=38)
         selected.append((-1.0, primary_audio[: int(12.0 * SAMPLE_RATE)], primary_prompt))
         used_paths.add(primary_prompt)
+    tagged_paths = delivery_tags_by_path or {}
+    all_tags = sorted({tag for tags in tagged_paths.values() for tag in tags})
+    for tag in all_tags:
+        tag_count = 0
+        for candidate in candidates:
+            path = candidate[3]
+            if path in used_paths or tag not in tagged_paths.get(path, ()):
+                continue
+            selected_candidates.append(candidate)
+            used_paths.add(path)
+            tag_count += 1
+            if tag_count == 3 or len(selected) + len(selected_candidates) == target_count:
+                break
+        if len(selected) + len(selected_candidates) == target_count:
+            break
     for candidate in candidates:
         if candidate[3] in used_paths:
             continue
@@ -380,36 +647,206 @@ def transcript_cache(root: Path, spec: ProfileSpec) -> dict[str, str]:
     return cached
 
 
+def dialogue_metadata(spec: ProfileSpec) -> dict[str, dict]:
+    metadata: dict[str, dict] = {}
+    for source in spec.sources:
+        manifest_path = (
+            source / "dialogue_manifest.json"
+            if source.is_dir()
+            else source.parent / "dialogue_manifest.json"
+        )
+        if not manifest_path.is_file():
+            continue
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        entries = manifest.get("entries", {})
+        if not isinstance(entries, dict):
+            continue
+        for filename, value in entries.items():
+            if isinstance(value, dict):
+                metadata[str(filename).casefold()] = value
+    return metadata
+
+
+def write_vocal_actions(
+    profile_root: Path,
+    sources: tuple[VocalActionSource, ...],
+) -> dict[str, list[dict]]:
+    available = tuple(source for source in sources if source.source.is_file())
+    if not available:
+        return {}
+
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        raise RuntimeError("FFmpeg is required to prepare character vocal actions.")
+    try:
+        from tools.scripts.build_kotor_rvc_dataset import decode_audio
+    except ModuleNotFoundError:
+        from scripts.build_kotor_rvc_dataset import decode_audio
+
+    actions_root = profile_root / "actions"
+    actions_root.mkdir(parents=True, exist_ok=True)
+    written: dict[str, list[dict]] = {}
+    action_counts: dict[str, int] = {}
+    prepared_audio: dict[tuple[Path, float, float | None], np.ndarray] = {}
+    with tempfile.TemporaryDirectory(
+        prefix=".actions-staging-",
+        dir=profile_root,
+    ) as temp_dir:
+        stage_root = Path(temp_dir)
+        for source in available:
+            action_counts[source.name] = action_counts.get(source.name, 0) + 1
+            variant = action_counts[source.name]
+            cache_key = (
+                source.source.resolve(),
+                source.start_seconds,
+                source.end_seconds,
+            )
+            clip = prepared_audio.get(cache_key)
+            if clip is None:
+                decoded = stage_root / f"decoded_{len(prepared_audio):03d}.wav"
+                decode_audio(
+                    ffmpeg,
+                    source.source,
+                    decoded,
+                    sample_rate=SAMPLE_RATE,
+                )
+                clip = load_mono(decoded)
+                start = max(0, int(source.start_seconds * SAMPLE_RATE))
+                end = (
+                    len(clip)
+                    if source.end_seconds is None
+                    else min(len(clip), int(source.end_seconds * SAMPLE_RATE))
+                )
+                clip = clip[start:end]
+                if not clip.size:
+                    raise RuntimeError(
+                        f"Vocal action crop is empty: {source.name} ({source.source})"
+                    )
+                fade_frames = min(len(clip) // 2, int(0.012 * SAMPLE_RATE))
+                if fade_frames:
+                    clip[:fade_frames] *= np.linspace(0.0, 1.0, fade_frames)
+                    clip[-fade_frames:] *= np.linspace(1.0, 0.0, fade_frames)
+                rms = float(np.sqrt(np.mean(np.square(clip)) + 1e-12))
+                target_rms = 10.0 ** (-20.0 / 20.0)
+                if rms > 0.0:
+                    clip *= min(target_rms / rms, 2.0)
+                peak = float(np.max(np.abs(clip)))
+                if peak > 0.95:
+                    clip *= 0.95 / peak
+                prepared_audio[cache_key] = clip
+            filename = f"{source.name}_{variant:02d}.wav"
+            target = stage_root / filename
+            sf.write(target, clip, SAMPLE_RATE, subtype="PCM_16")
+            written.setdefault(source.name, []).append(
+                {
+                    "audio": f"actions/{filename}",
+                    "tags": list(source.tags),
+                    "intensity": round(max(0.0, min(1.0, source.intensity)), 3),
+                    "source": source.source_label or str(source.source),
+                    "authentic": source.authentic,
+                    "mode": (
+                        "prompt" if source.mode.casefold() == "prompt" else "direct"
+                    ),
+                    "prompt_text": source.prompt_text,
+                }
+            )
+        for staged in stage_root.glob("*.wav"):
+            if not staged.name.startswith("decoded_"):
+                os.replace(staged, actions_root / staged.name)
+    return written
+
+
+def publish_profile(profile_root: Path, profile: dict) -> None:
+    profile_path = profile_root / "profile.json"
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=profile_root,
+        prefix=".profile.json.",
+        suffix=".tmp",
+        delete=False,
+    ) as staged:
+        staged.write(json.dumps(profile, indent=2))
+        staged_path = Path(staged.name)
+    try:
+        os.replace(staged_path, profile_path)
+    finally:
+        staged_path.unlink(missing_ok=True)
+
+    referenced_actions = {
+        Path(str(asset.get("audio", ""))).name
+        for variants in profile.get("vocal_actions", {}).values()
+        for asset in variants
+        if isinstance(asset, dict)
+    }
+    actions_root = profile_root / "actions"
+    for stale in actions_root.glob("*.wav"):
+        if stale.name not in referenced_actions:
+            stale.unlink()
+
+
 def write_profile(root: Path, spec: ProfileSpec) -> None:
     files = source_files(spec.sources, spec.exclude_name_patterns)
     if not files:
         print(f"skip {spec.name}: no local source audio")
         return
 
+    source_metadata = dialogue_metadata(spec)
+    directed_sources = {
+        source
+        for source in files
+        if source_metadata.get(source.name.casefold(), {}).get(
+            "performance_directions"
+        )
+    }
+    delivery_tags_by_path = {
+        source: tuple(
+            str(tag)
+            for tag in source_metadata.get(source.name.casefold(), {}).get(
+                "delivery_tags",
+                [],
+            )
+            if str(tag).strip()
+        )
+        for source in files
+    }
     reference, selected = build_reference(
         files,
         spec.primary_prompt,
         spec.style_anchor_count,
+        directed_sources,
+        delivery_tags_by_path,
     )
     cached_transcripts = transcript_cache(root, spec)
     style_anchors: list[dict] = []
     style_clips: list[np.ndarray] = []
     for index, (_, clip, source) in enumerate(selected):
+        metadata = source_metadata.get(source.name.casefold(), {})
         prompt_text = (
             spec.primary_prompt_text
             if index == 0 and spec.primary_prompt is not None and source == spec.primary_prompt
-            else cached_transcripts.get(str(source).casefold()) or transcribe_clip(clip)
+            else str(metadata.get("text", "")).strip()
+            or cached_transcripts.get(str(source).casefold())
+            or transcribe_clip(clip)
         )
         if not prompt_text:
             continue
-        style_anchors.append(
-            {
-                "audio": f"styles/style_{index + 1:02d}.wav",
-                "prompt_text": prompt_text,
-                "source": str(source),
-                "features": style_features(clip, prompt_text),
-            }
-        )
+        anchor = {
+            "audio": f"styles/style_{index + 1:03d}.wav",
+            "prompt_text": prompt_text,
+            "source": str(source),
+            "features": style_features(clip, prompt_text),
+        }
+        directions = metadata.get("performance_directions", [])
+        tags = metadata.get("delivery_tags", [])
+        if isinstance(directions, list) and directions:
+            anchor["performance_directions"] = directions
+        if isinstance(tags, list) and tags:
+            anchor["delivery_tags"] = tags
+        style_anchors.append(anchor)
         style_clips.append(clip)
     total_source_seconds = 0.0
     for path in files:
@@ -470,6 +907,13 @@ def write_profile(root: Path, spec: ProfileSpec) -> None:
                 SAMPLE_RATE,
                 subtype="PCM_16",
             )
+        generated_actions = generated_vocal_actions(voice_id)
+        if not generated_actions and voice_id != spec.voice_ids[0]:
+            generated_actions = generated_vocal_actions(spec.voice_ids[0])
+        vocal_actions = write_vocal_actions(
+            profile_root,
+            spec.vocal_actions + generated_actions,
+        )
         profile = {
             "format_version": 5,
             "voice_id": voice_id,
@@ -490,11 +934,9 @@ def write_profile(root: Path, spec: ProfileSpec) -> None:
                 spec.use_stable_character_identity and adapter_installed
             ),
             "delivery_profile": spec.delivery_profile,
+            "vocal_actions": vocal_actions,
         }
-        (profile_root / "profile.json").write_text(
-            json.dumps(profile, indent=2),
-            encoding="utf-8",
-        )
+        publish_profile(profile_root, profile)
         print(
             f"built {spec.name} [{voice_id}] from {len(files)} files "
             f"({total_source_seconds:.1f}s available)"
