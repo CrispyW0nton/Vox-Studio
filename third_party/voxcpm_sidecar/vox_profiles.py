@@ -192,8 +192,8 @@ def anchor_direction_adjustment(anchor: dict, delivery_label: str) -> float:
         "wounded": {"reflective"},
         "reflective": {"wounded"},
         "urgent": {"emphatic"},
-        "emphatic": {"urgent", "resolute"},
-        "resolute": {"emphatic"},
+        "emphatic": {"urgent"},
+        "resolute": {"neutral", "calm", "measured"},
     }
     if tags.intersection(related.get(target, set())):
         return -0.45

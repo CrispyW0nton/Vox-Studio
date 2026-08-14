@@ -26,6 +26,11 @@ SPEC.loader.exec_module(MODULE)
 
 
 class PerformanceDirectionTests(unittest.TestCase):
+    def test_carth_can_use_a_distinct_voiceover_token(self) -> None:
+        self.assertTrue(MODULE.speaker_matches_character("Carth", "Carth"))
+        self.assertNotIn("carth", "nm41aacart04034_".casefold())
+        self.assertIn("cart", "nm41aacart04034_".casefold())
+
     def test_preserves_directing_notes_separately_from_spoken_text(self) -> None:
         raw = (
             "{Sighs, faint wistfulness, like for a lost son}"
@@ -101,6 +106,31 @@ class CorpusPublicationTests(unittest.TestCase):
             path.write_bytes(b"RIFF")
 
             self.assertFalse(MODULE.is_valid_corpus_wave(path))
+
+    def test_indexes_kotor_one_streamwaves_when_streamvoice_is_absent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            game_root = Path(temp_dir)
+            source = game_root / "streamwaves" / "module" / "carth.wav"
+            source.parent.mkdir(parents=True)
+            source.write_bytes(b"audio")
+
+            indexed = MODULE.game_audio_index(game_root)
+
+        self.assertEqual(indexed["carth"], source)
+
+    def test_does_not_scan_streamvoice_twice_on_windows(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            game_root = Path(temp_dir)
+            stream_voice = game_root / "StreamVoice"
+            stream_voice.mkdir()
+            with mock.patch.object(
+                MODULE,
+                "source_audio_index",
+                wraps=MODULE.source_audio_index,
+            ) as indexer:
+                MODULE.game_audio_index(game_root)
+
+        self.assertEqual(indexer.call_count, 1)
 
 
 if __name__ == "__main__":

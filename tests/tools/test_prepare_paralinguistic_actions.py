@@ -26,6 +26,75 @@ SPEC.loader.exec_module(MODULE)
 
 
 class ReactionExtractionTests(unittest.TestCase):
+    def test_rejects_click_length_chuckle_fragments(self) -> None:
+        chuckle = next(
+            recipe for recipe in MODULE.ACTION_RECIPES if recipe.name == "chuckle"
+        )
+
+        self.assertFalse(MODULE.reaction_duration_is_valid(chuckle, 0.25))
+        self.assertTrue(MODULE.reaction_duration_is_valid(chuckle, 0.8))
+        self.assertLess(MODULE.generation_token_limit(chuckle), 1024)
+
+    def test_preserves_valid_previous_action_when_refresh_yields_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "chuckle_01.wav").write_bytes(b"wave")
+            (root / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "entries": [
+                            {
+                                "name": "chuckle",
+                                "audio": "chuckle_01.wav",
+                                "duration_seconds": 0.8,
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            chuckle = next(
+                recipe for recipe in MODULE.ACTION_RECIPES if recipe.name == "chuckle"
+            )
+
+            preserved = MODULE.preserved_manifest_entries(
+                root,
+                refreshed_actions=set(),
+                selected_recipes={"chuckle": chuckle},
+            )
+
+        self.assertEqual(len(preserved), 1)
+
+    def test_discards_invalid_previous_action_when_refresh_yields_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "chuckle_01.wav").write_bytes(b"wave")
+            (root / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "entries": [
+                            {
+                                "name": "chuckle",
+                                "audio": "chuckle_01.wav",
+                                "duration_seconds": 0.18,
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            chuckle = next(
+                recipe for recipe in MODULE.ACTION_RECIPES if recipe.name == "chuckle"
+            )
+
+            preserved = MODULE.preserved_manifest_entries(
+                root,
+                refreshed_actions=set(),
+                selected_recipes={"chuckle": chuckle},
+            )
+
+        self.assertEqual(preserved, [])
+
     def test_extracts_reaction_before_silence_and_spoken_phrase(self) -> None:
         sample_rate = 48_000
         time = np.arange(int(0.55 * sample_rate), dtype=np.float32) / sample_rate

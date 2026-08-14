@@ -18,7 +18,10 @@ DELIVERY_INSTRUCTIONS = {
     "wry": "Dry, restrained wit with subtle skepticism, never broad comedy.",
     "guarded": "Guarded suspicion with clipped restraint and controlled tension.",
     "wounded": "Contained hurt and vulnerability without melodrama.",
-    "resolute": "Steady resolve, focus, and controlled confidence.",
+    "resolute": (
+        "Firm, settled resolve at a calm conversational volume. Keep the energy "
+        "grounded and controlled; do not shout, bark, sound angry, or rush."
+    ),
     "urgent": "Genuine urgency with forward momentum, without shouting.",
     "questioning": "Curious, searching delivery with a natural questioning cadence.",
     "sarcastic": "Dry, controlled sarcasm with precise emphasis, never cartoonish.",

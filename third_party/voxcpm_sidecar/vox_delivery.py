@@ -150,19 +150,19 @@ _TEXT_DELIVERY_SHAPES = {
         },
     ),
     "resolute": (
-        "emphatic",
-        0.58,
-        0.62,
-        0.62,
+        "resolute",
+        0.46,
+        0.50,
+        0.44,
         {
-            "characters_per_second": 16.0,
-            "pitch_range_semitones": 8.5,
-            "pitch_variation_semitones": 3.1,
-            "dynamic_db": 14.0,
-            "pause_ratio": 0.07,
-            "pitch_slope_semitones": 0.6,
+            "characters_per_second": 14.2,
+            "pitch_range_semitones": 6.8,
+            "pitch_variation_semitones": 2.4,
+            "dynamic_db": 11.5,
+            "pause_ratio": 0.09,
+            "pitch_slope_semitones": -0.1,
             "terminal_pitch_delta": -1.8,
-            "energy_slope_db": 1.8,
+            "energy_slope_db": 0.2,
         },
     ),
     "urgent": (
@@ -640,7 +640,9 @@ _ADJACENT_DELIVERIES = {
     frozenset(("wounded", "reflective")),
     frozenset(("warm", "calm")),
     frozenset(("disapproving", "emphatic")),
-    frozenset(("resolute", "urgent")),
+    frozenset(("resolute", "neutral")),
+    frozenset(("resolute", "calm")),
+    frozenset(("resolute", "measured")),
 }
 
 

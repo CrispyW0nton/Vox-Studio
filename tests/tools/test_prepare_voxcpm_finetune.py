@@ -22,6 +22,12 @@ SPEC.loader.exec_module(MODULE)
 
 
 class DialogueCleaningTests(unittest.TestCase):
+    def test_carth_training_uses_the_exact_manifest_corpus(self) -> None:
+        source = MODULE.default_sources()["carth"]
+
+        self.assertEqual(source.audio_root.name, "CarthExact")
+        self.assertEqual(source.dialogue_manifest.name, "dialogue_manifest.json")
+
     def test_removes_acting_directions_but_preserves_dialogue(self) -> None:
         text = (
             "{Incredulous, during a fight}Uh, General, I think you've got "

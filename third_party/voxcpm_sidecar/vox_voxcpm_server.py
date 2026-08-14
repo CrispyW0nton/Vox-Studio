@@ -395,7 +395,10 @@ def build_control_instruction(
         "wounded": "Contained hurt and vulnerability; avoid melodrama.",
         "warm": "Earnest, understated warmth and relief.",
         "disapproving": "Firm moral disapproval with controlled frustration.",
-        "resolute": "Steady protective resolve and military focus.",
+        "resolute": (
+            "Steady protective resolve at the performer's volume; do not shout, "
+            "bark commands, add anger, or increase intensity."
+        ),
         "emphatic": "Use only the performer's emphasis.",
         "urgent": "Match the performer's urgency without exceeding it.",
         "questioning": "Preserve the performer's questioning cadence.",

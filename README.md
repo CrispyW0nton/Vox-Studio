@@ -251,6 +251,12 @@ Prepare exact Carth or Bao-Dur dialogue/audio pairs from an installed game:
 
 ```powershell
 & "$env:LOCALAPPDATA\VoxStudio\engines\voxcpm2\.venv\Scripts\python.exe" `
+  tools\prepare_kotor_character_corpus.py `
+  --game-root "C:\Program Files (x86)\Steam\steamapps\common\swkotor" `
+  --character Carth --voiceover-token cart `
+  --output "$HOME\Documents\KotorMods\Voices\RvcDatasets\CarthExact"
+
+& "$env:LOCALAPPDATA\VoxStudio\engines\voxcpm2\.venv\Scripts\python.exe" `
   tools\prepare_voxcpm_finetune.py --voice carth
 ```
 
@@ -289,7 +295,9 @@ runtime folders. Generated reaction WAVs, licensed source recordings, manifests,
 and character adapters remain local and are not distributed by Vox Studio.
 
 Pass `--voice "Carth"` or `--voice "Bao-Dur"` to rebuild one profile. The
-builder installs a completed local adapter into the matching voice profile.
+builder installs a completed local adapter only when its training summary
+identifies the profile's current corpus. This prevents an older mixed or
+superseded dataset from silently changing the character voice.
 Licensed game audio, prepared manifests, and adapter weights remain local and
 are never included in the repository.
 

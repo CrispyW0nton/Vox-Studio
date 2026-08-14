@@ -49,9 +49,10 @@ def default_sources() -> dict[str, VoiceSource]:
     return {
         "carth": VoiceSource(
             name="Carth",
-            audio_root=voices / "CarthDecoded",
+            audio_root=voices / "CarthExact",
             tlk_path=steam / "swkotor" / "dialog.tlk",
             excluded_globs=("nm01aacart*", "n_m1bncart*"),
+            dialogue_manifest=voices / "CarthExact" / "dialogue_manifest.json",
         ),
         "bao-dur": VoiceSource(
             name="Bao-Dur",

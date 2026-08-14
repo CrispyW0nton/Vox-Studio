@@ -26,11 +26,13 @@ class DeliveryDetectionTests(unittest.TestCase):
     def test_text_delivery_targets_select_distinct_human_performance_shapes(self) -> None:
         natural_features, natural = text_delivery_target("natural")
         reflective_features, reflective = text_delivery_target("reflective")
+        resolute_features, resolute = text_delivery_target("resolute")
         urgent_features, urgent = text_delivery_target("urgent")
         wry_features, wry = text_delivery_target("wry")
 
         self.assertEqual(natural.label, "neutral")
         self.assertEqual(reflective.label, "reflective")
+        self.assertEqual(resolute.label, "resolute")
         self.assertEqual(urgent.label, "urgent")
         self.assertEqual(wry.label, "sarcastic")
         self.assertLess(
@@ -40,6 +42,14 @@ class DeliveryDetectionTests(unittest.TestCase):
         self.assertGreater(
             urgent_features["pitch_range_semitones"],
             natural_features["pitch_range_semitones"],
+        )
+        self.assertLess(
+            resolute_features["dynamic_db"],
+            urgent_features["dynamic_db"],
+        )
+        self.assertLessEqual(
+            resolute_features["energy_slope_db"],
+            natural_features["energy_slope_db"] + 0.5,
         )
 
     def test_detects_calm_without_inventing_emotion(self) -> None:
@@ -199,6 +209,30 @@ class DeliveryDetectionTests(unittest.TestCase):
         )
 
         self.assertLess(matching, mismatched)
+
+    def test_resolute_is_closer_to_calm_than_urgent(self) -> None:
+        resolute_features, resolute = text_delivery_target("resolute")
+        calm_features, calm = text_delivery_target("calm")
+        urgent_features, urgent = text_delivery_target("urgent")
+
+        calm_distance = delivery_distance(
+            resolute_features,
+            calm_features,
+            resolute,
+            calm,
+            "We have to keep moving.",
+            "Stay focused and keep moving.",
+        )
+        urgent_distance = delivery_distance(
+            resolute_features,
+            urgent_features,
+            resolute,
+            urgent,
+            "We have to keep moving.",
+            "Move now!",
+        )
+
+        self.assertLess(calm_distance, urgent_distance)
 
 
 class CharacterDeliveryTests(unittest.TestCase):

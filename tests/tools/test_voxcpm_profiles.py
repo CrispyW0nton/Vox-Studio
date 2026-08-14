@@ -288,6 +288,19 @@ class AnchorDirectionTests(unittest.TestCase):
         self.assertLess(exact, related)
         self.assertLess(related, 0.0)
 
+    def test_resolute_does_not_prefer_emphatic_anchors(self) -> None:
+        emphatic = anchor_direction_adjustment(
+            {"delivery_tags": ["emphatic"]},
+            "resolute",
+        )
+        calm = anchor_direction_adjustment(
+            {"delivery_tags": ["calm"]},
+            "resolute",
+        )
+
+        self.assertGreater(emphatic, 0.0)
+        self.assertLess(calm, 0.0)
+
 
 class GenerationOptionTests(unittest.TestCase):
     def test_controlled_generation_never_uses_performer_as_speaker_prompt(self) -> None:

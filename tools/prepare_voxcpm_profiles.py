@@ -217,14 +217,15 @@ def default_specs() -> tuple[ProfileSpec, ...]:
         ProfileSpec(
             ("QD3JDvJNNRSe5ZhVM9hR", "i3UvU0lrwOz34jmla36c"),
             "Carth",
-            (voices / "RvcDatasets" / "CarthDecoded",),
-            voices / "RvcDatasets" / "CarthDecoded" / "nm13aashen16004_.wav",
+            (voices / "RvcDatasets" / "CarthExact",),
+            voices / "RvcDatasets" / "CarthExact" / "nm02aacart02001_.wav",
             (
-                "I wish you the best of luck, Shen. I hope you two find the "
-                "happiness I once knew myself."
+                "Don't worry, we should be safe here in this apartment. I gave "
+                "you something to help you sleep. Just get some rest and let the "
+                "kolto packs do their job."
             ),
             ("nm01aacart*", "n_m1bncart*"),
-            style_anchor_count=316,
+            style_anchor_count=212,
             control_instruction="Keep the trained voice stable.",
             use_controlled_cloning=True,
             controlled_cfg_value=2.0,
@@ -788,6 +789,32 @@ def publish_profile(profile_root: Path, profile: dict) -> None:
             stale.unlink()
 
 
+def training_matches_profile_sources(
+    summary_path: Path,
+    profile_sources: tuple[Path, ...],
+) -> bool:
+    try:
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        training_root = Path(str(summary["source"]["audio_root"])).resolve()
+    except (FileNotFoundError, KeyError, OSError, TypeError, ValueError):
+        return False
+    return any(training_root == source.resolve() for source in profile_sources)
+
+
+def checkpoint_matches_training_summary(
+    checkpoint_root: Path,
+    summary_path: Path,
+) -> bool:
+    try:
+        summary_mtime = summary_path.stat().st_mtime_ns
+        return all(
+            (checkpoint_root / name).stat().st_mtime_ns >= summary_mtime
+            for name in ("lora_weights.safetensors", "lora_config.json")
+        )
+    except OSError:
+        return False
+
+
 def write_profile(root: Path, spec: ProfileSpec) -> None:
     files = source_files(spec.sources, spec.exclude_name_patterns)
     if not files:
@@ -855,39 +882,45 @@ def write_profile(root: Path, spec: ProfileSpec) -> None:
         except Exception:
             pass
 
-    for voice_id in spec.voice_ids:
-        profile_root = root / voice_id
-        profile_root.mkdir(parents=True, exist_ok=True)
-        (profile_root / "styles").mkdir(parents=True, exist_ok=True)
-        adapter_installed = False
-        if spec.lora_training_name:
-            checkpoints_root = (
-                Path(os.environ["LOCALAPPDATA"])
-                / "VoxStudio"
-                / "voxcpm_training"
-                / spec.lora_training_name
-                / "checkpoints"
-            )
-            checkpoint_root = next(
+    adapter_checkpoint: Path | None = None
+    if spec.lora_training_name:
+        training_root = (
+            Path(os.environ["LOCALAPPDATA"])
+            / "VoxStudio"
+            / "voxcpm_training"
+            / spec.lora_training_name
+        )
+        summary_path = training_root / "summary.json"
+        if training_matches_profile_sources(
+            summary_path,
+            spec.sources,
+        ):
+            checkpoints_root = training_root / "checkpoints"
+            adapter_checkpoint = next(
                 (
                     candidate
                     for candidate in (
                         checkpoints_root / "best",
                         checkpoints_root / "latest",
                     )
-                    if (candidate / "lora_weights.safetensors").exists()
-                    and (candidate / "lora_config.json").exists()
+                    if checkpoint_matches_training_summary(candidate, summary_path)
                 ),
-                checkpoints_root / "latest",
+                None,
             )
-            weights_path = checkpoint_root / "lora_weights.safetensors"
-            config_path = checkpoint_root / "lora_config.json"
-            if weights_path.exists() and config_path.exists():
-                adapter_root = profile_root / "lora"
-                adapter_root.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(weights_path, adapter_root / weights_path.name)
-                shutil.copy2(config_path, adapter_root / config_path.name)
-                adapter_installed = True
+
+    for voice_id in spec.voice_ids:
+        profile_root = root / voice_id
+        profile_root.mkdir(parents=True, exist_ok=True)
+        (profile_root / "styles").mkdir(parents=True, exist_ok=True)
+        adapter_installed = False
+        if adapter_checkpoint is not None:
+            weights_path = adapter_checkpoint / "lora_weights.safetensors"
+            config_path = adapter_checkpoint / "lora_config.json"
+            adapter_root = profile_root / "lora"
+            adapter_root.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(weights_path, adapter_root / weights_path.name)
+            shutil.copy2(config_path, adapter_root / config_path.name)
+            adapter_installed = True
         profile_reference = selected[0][1] if adapter_installed else reference
         if adapter_installed:
             profile_reference = profile_reference.copy()

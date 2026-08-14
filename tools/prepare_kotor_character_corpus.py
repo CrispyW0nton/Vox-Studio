@@ -99,6 +99,7 @@ def ensure_pykotor() -> None:
 def read_dialogue_records(
     game_root: Path,
     character_token: str,
+    voiceover_token: str | None = None,
 ) -> dict[str, DialogueRecord]:
     ensure_pykotor()
     from pykotor.extract.installation import Installation
@@ -112,7 +113,7 @@ def read_dialogue_records(
 
     records: dict[str, DialogueRecord] = {}
     seen_resources: set[tuple[str, int, int]] = set()
-    token = character_token.casefold()
+    token = (voiceover_token or character_token).casefold()
     for module_name in installation.modules_list():
         try:
             resources = installation.module_resources(module_name)
@@ -170,6 +171,22 @@ def source_audio_index(stream_voice_root: Path) -> dict[str, Path]:
     return index
 
 
+def game_audio_index(game_root: Path) -> dict[str, Path]:
+    index: dict[str, Path] = {}
+    seen_roots: set[str] = set()
+    for relative in ("StreamVoice", "streamvoice", "streamwaves"):
+        root = game_root / relative
+        root_key = os.path.normcase(str(root.resolve()))
+        if root_key in seen_roots:
+            continue
+        seen_roots.add(root_key)
+        if not root.is_dir():
+            continue
+        for stem, path in source_audio_index(root).items():
+            index.setdefault(stem, path)
+    return index
+
+
 def is_valid_corpus_wave(path: Path) -> bool:
     try:
         with wave.open(str(path), "rb") as audio:
@@ -205,13 +222,14 @@ def prepare_corpus(
     character_token: str,
     output_root: Path,
     ffmpeg: str,
+    voiceover_token: str | None = None,
 ) -> dict:
-    records = read_dialogue_records(game_root, character_token)
+    records = read_dialogue_records(game_root, character_token, voiceover_token)
     if not records:
         raise RuntimeError(
             f"No dialogue records were found for character '{character_token}'."
         )
-    sources = source_audio_index(game_root / "StreamVoice")
+    sources = game_audio_index(game_root)
     output_root.mkdir(parents=True, exist_ok=True)
     entries: dict[str, dict] = {}
     failures: list[dict[str, str]] = []
@@ -261,6 +279,7 @@ def prepare_corpus(
     manifest = {
         "format_version": 1,
         "character": character_token,
+        "voiceover_token": voiceover_token or character_token,
         "game_root": str(game_root),
         "matched_dialogue_records": len(entries),
         "available_dialogue_records": len(records),
@@ -281,6 +300,10 @@ def main() -> None:
     )
     parser.add_argument("--character", required=True)
     parser.add_argument(
+        "--voiceover-token",
+        help="Optional filename token when it differs from the character name.",
+    )
+    parser.add_argument(
         "--game-root",
         type=Path,
         default=(
@@ -299,6 +322,7 @@ def main() -> None:
         arguments.character,
         arguments.output,
         ffmpeg,
+        arguments.voiceover_token,
     )
     print(
         json.dumps(

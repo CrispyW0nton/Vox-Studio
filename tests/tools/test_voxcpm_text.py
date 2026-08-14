@@ -116,6 +116,18 @@ class PerformanceCueTests(unittest.TestCase):
         self.assertEqual(segments[1].action.name, "sigh")
         self.assertNotIn("\\", " ".join(segment.text for segment in segments))
 
+    def test_accepts_escaped_double_asterisk_chuckle_before_dialogue(self) -> None:
+        segments = parse_performance_script(
+            r"**chuckles\** It's just like that time on Corellia, isn't it?"
+        )
+
+        self.assertEqual(len(segments), 2)
+        self.assertEqual(segments[0].action.name, "chuckle")
+        self.assertEqual(
+            segments[1].text,
+            "It's just like that time on Corellia, isn't it?",
+        )
+
     def test_markdown_emphasis_remains_spoken_text(self) -> None:
         segments = parse_performance_script("This is *very* important.")
 

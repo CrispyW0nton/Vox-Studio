@@ -23,20 +23,61 @@ class ActionRecipe:
     dia_tag: str
     tags: tuple[str, ...]
     intensity: float
+    context_text: str
+    minimum_seconds: float
+    maximum_seconds: float = MAX_REACTION_SECONDS
 
 
 ACTION_RECIPES = (
-    ActionRecipe("sigh", "sighs", ("reflective", "weary", "restrained"), 0.35),
-    ActionRecipe("laugh", "laughs", ("warm", "amused"), 0.55),
-    ActionRecipe("chuckle", "chuckle", ("dry", "restrained"), 0.4),
-    ActionRecipe("cough", "coughs", ("pained",), 0.55),
-    ActionRecipe("throat_clear", "clears throat", ("restrained",), 0.35),
-    ActionRecipe("sob", "sobs", ("wounded",), 0.65),
-    ActionRecipe("whimper", "groans", ("wounded", "restrained"), 0.35),
-    ActionRecipe("inhale", "inhales", ("startled",), 0.4),
-    ActionRecipe("exhale", "exhales", ("weary", "restrained"), 0.35),
-    ActionRecipe("choke", "coughs", ("pained", "forceful"), 0.75),
+    ActionRecipe(
+        "sigh", "sighs", ("reflective", "weary", "restrained"), 0.35,
+        "I suppose there is no point dwelling on it. We should keep moving.", 0.45,
+    ),
+    ActionRecipe(
+        "laugh", "laughs", ("warm", "amused"), 0.55,
+        "Now that is something I did not expect to see today. All right, you got me.", 0.55,
+    ),
+    ActionRecipe(
+        "chuckle", "laughs", ("dry", "restrained"), 0.4,
+        "That reminds me of something that happened long ago. I should have known better.", 0.4, 2.4,
+    ),
+    ActionRecipe(
+        "cough", "coughs", ("pained",), 0.55,
+        "I am fine. Just give me a moment to catch my breath and we will keep going.", 0.25, 2.2,
+    ),
+    ActionRecipe(
+        "throat_clear", "clears throat", ("restrained",), 0.35,
+        "There is something we need to discuss before we go any further.", 0.3, 1.8,
+    ),
+    ActionRecipe(
+        "sob", "sobs", ("wounded",), 0.65,
+        "I thought I could hold it together. Just give me another moment.", 0.55,
+    ),
+    ActionRecipe(
+        "whimper", "groans", ("wounded", "restrained"), 0.35,
+        "That hurts more than I expected, but I can still keep going.", 0.35, 2.5,
+    ),
+    ActionRecipe(
+        "inhale", "inhales", ("startled",), 0.4,
+        "Wait. I heard something just beyond that door. Stay close.", 0.3, 1.8,
+    ),
+    ActionRecipe(
+        "exhale", "exhales", ("weary", "restrained"), 0.35,
+        "It is over now. We can finally take a moment and think.", 0.4, 2.4,
+    ),
+    ActionRecipe(
+        "choke", "coughs", ("pained", "forceful"), 0.75,
+        "Something caught in my throat. I will be all right in a moment.", 0.3, 2.5,
+    ),
 )
+
+
+def reaction_duration_is_valid(recipe: ActionRecipe, duration: float) -> bool:
+    return recipe.minimum_seconds <= duration < recipe.maximum_seconds
+
+
+def generation_token_limit(recipe: ActionRecipe) -> int:
+    return max(256, min(1024, round((recipe.maximum_seconds + 1.5) * 86)))
 
 
 def load_mono(path: Path) -> tuple[np.ndarray, int]:
@@ -135,6 +176,7 @@ def select_clone_prompt(profile: dict, profile_root: Path) -> tuple[Path, str]:
 def preserved_manifest_entries(
     character_root: Path,
     refreshed_actions: set[str],
+    selected_recipes: dict[str, ActionRecipe] | None = None,
 ) -> list[dict]:
     manifest_path = character_root / "manifest.json"
     if not manifest_path.is_file():
@@ -146,13 +188,26 @@ def preserved_manifest_entries(
     entries = manifest.get("entries", [])
     if not isinstance(entries, list):
         return []
-    return [
-        entry
-        for entry in entries
-        if isinstance(entry, dict)
-        and str(entry.get("name", "")).casefold() not in refreshed_actions
-        and (character_root / str(entry.get("audio", ""))).is_file()
-    ]
+    recipes = selected_recipes or {}
+    preserved: list[dict] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        action_name = str(entry.get("name", "")).casefold()
+        if action_name in refreshed_actions:
+            continue
+        if not (character_root / str(entry.get("audio", ""))).is_file():
+            continue
+        recipe = recipes.get(action_name)
+        if recipe is not None:
+            try:
+                duration = float(entry.get("duration_seconds", 0.0))
+            except (TypeError, ValueError):
+                continue
+            if not reaction_duration_is_valid(recipe, duration):
+                continue
+        preserved.append(entry)
+    return preserved
 
 
 def publish_action_bank(
@@ -231,22 +286,27 @@ def build_action_bank(
     with tempfile.TemporaryDirectory(prefix="_staging-", dir=character_root) as stage:
         stage_root = Path(stage)
         for recipe in recipes:
-            for variant in range(variants):
-                seed = 7100 + variant + sum(ord(char) for char in recipe.name)
+            accepted = 0
+            attempt = 0
+            maximum_attempts = variants * 4
+            while accepted < variants and attempt < maximum_attempts:
+                seed = 7100 + attempt + sum(ord(char) for char in recipe.name)
                 torch_module.manual_seed(seed)
-                target_text = f"[S1] ({recipe.dia_tag})"
+                target_text = (
+                    f"[S1] ({recipe.dia_tag}) {recipe.context_text} [S2]"
+                )
                 generated = model.generate(
                     f"[S1] {prompt_text} {target_text}",
                     audio_prompt=str(prompt_path),
-                    max_tokens=1024,
+                    max_tokens=generation_token_limit(recipe),
                     use_torch_compile=False,
                     verbose=False,
                     cfg_scale=4.0,
-                    temperature=1.55 + variant * 0.12,
+                    temperature=1.45 + (attempt % 4) * 0.12,
                     top_p=0.9,
                     cfg_filter_top_k=50,
                 )
-                raw_path = stage_root / f"_{recipe.name}_{variant + 1:02d}_raw.wav"
+                raw_path = stage_root / f"_{recipe.name}_{attempt + 1:02d}_raw.wav"
                 model.save_audio(str(raw_path), generated)
                 raw, sample_rate = load_mono(raw_path)
                 reaction = normalize_reaction(
@@ -255,9 +315,11 @@ def build_action_bank(
                 )
                 duration = len(reaction) / float(sample_rate)
                 raw_path.unlink(missing_ok=True)
-                if not MIN_REACTION_SECONDS <= duration < MAX_REACTION_SECONDS:
+                attempt += 1
+                if not reaction_duration_is_valid(recipe, duration):
                     continue
-                target = stage_root / f"{recipe.name}_{variant + 1:02d}.wav"
+                accepted += 1
+                target = stage_root / f"{recipe.name}_{accepted:02d}.wav"
                 sf.write(target, reaction, sample_rate, subtype="PCM_16")
                 entries.append(
                     {
@@ -273,7 +335,12 @@ def build_action_bank(
                 )
         refreshed_actions = {str(entry["name"]) for entry in entries}
         entries = (
-            preserved_manifest_entries(character_root, refreshed_actions) + entries
+            preserved_manifest_entries(
+                character_root,
+                refreshed_actions,
+                {recipe.name: recipe for recipe in recipes},
+            )
+            + entries
         )
         manifest = {
             "format_version": 1,
