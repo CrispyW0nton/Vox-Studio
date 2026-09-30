@@ -518,6 +518,32 @@ def _split_oversized_section(section: str, maximum_characters: int) -> list[str]
     return chunks
 
 
+def short_paragraph_text(text: str, performance_mode: str, segmentation: str) -> str | None:
+    """Validate opt-in single-call speech; legacy segmentation stays unchanged."""
+    if segmentation == "default":
+        return None
+    limits = {
+        "short-paragraph": (400, 80, "Short paragraph"),
+        "continuous-monologue": (1200, 220, "Continuous monologue"),
+    }
+    if segmentation not in limits:
+        raise ValueError("Unknown text segmentation")
+    maximum_characters, maximum_words, label = limits[segmentation]
+    normalized = re.sub(r"\s+", " ", text).strip()
+    if (
+        performance_mode != STANDARD_MODE
+        or not normalized
+        or len(normalized) > maximum_characters
+        or len(normalized.split()) > maximum_words
+        or re.search(r"[\r\n\u2028\u2029()[\]{}<>*`]", text)
+    ):
+        raise ValueError(
+            f"{label} requires standard mode and one untagged paragraph "
+            f"of at most {maximum_characters} characters and {maximum_words} words"
+        )
+    return normalized
+
+
 def split_text_for_synthesis(
     text: str,
     maximum_characters: int = 260,

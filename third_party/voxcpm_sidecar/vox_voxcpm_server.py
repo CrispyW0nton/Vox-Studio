@@ -55,6 +55,7 @@ from vox_text import (
     parse_performance_script,
     plan_story_performance,
     split_text_for_synthesis,
+    short_paragraph_text,
     story_beat_instruction,
     synthesis_seed,
     vocal_action_by_name,
@@ -148,11 +149,13 @@ def load_profile(voice_id: str) -> tuple[dict, Path, Path]:
 def get_tts_model() -> VoxCPM:
     global tts_model
     if tts_model is None:
+        from vox_runtime import runtime_options
+        runtime = runtime_options(os.environ.get("VOX_VOXCPM_RUNTIME_PROFILE", "default"))
         tts_model = VoxCPM.from_pretrained(
             "openbmb/VoxCPM2",
             load_denoiser=False,
             cache_dir=str(ENGINE_ROOT / "cache"),
-            optimize=True,
+            optimize=runtime.optimize,
             device="cuda" if torch.cuda.is_available() else "cpu",
             lora_config=LoRAConfig(
                 enable_lm=True,
@@ -161,7 +164,7 @@ def get_tts_model() -> VoxCPM:
                 r=32,
                 alpha=32,
                 dropout=0.0,
-            ),
+            ) if runtime.allocate_lora else None,
         )
     return tts_model
 
@@ -461,6 +464,11 @@ def synthesize(
     seed: int = 42,
 ) -> tuple[np.ndarray, int]:
     with model_lock:
+        from vox_runtime import validate_runtime_adapter
+        validate_runtime_adapter(
+            os.environ.get("VOX_VOXCPM_RUNTIME_PROFILE", "default"),
+            lora_path is not None,
+        )
         model = get_tts_model()
         activate_lora(model, lora_path, active_lora)
         torch.manual_seed(seed)
@@ -609,7 +617,15 @@ def text_synthesis_sections(
     text: str,
     delivery_tag: str,
     performance_mode: str,
+    segmentation: str = "default",
 ) -> tuple[TextSynthesisSection, ...]:
+    paragraph = short_paragraph_text(text, performance_mode, segmentation)
+    if paragraph is not None:
+        return (text_synthesis_section(
+            profile, profile_dir, reference_path, paragraph, delivery_tag,
+            text_control_instruction(profile, delivery_tag),
+            text_pause_seconds(paragraph), synthesis_seed(0, paragraph),
+        ),)
     sections: list[TextSynthesisSection] = []
     last_action_paths: dict[str, Path] = {}
     story_plan = (
@@ -930,7 +946,12 @@ async def render_text(
     text: str = Form(...),
     delivery: str = Form("natural"),
     mode: str = Form("standard"),
+    segmentation: str = Form("default"),
 ) -> Response:
+    try:
+        short_paragraph_text(text, mode, segmentation)
+    except ValueError as exception:
+        raise HTTPException(status_code=400, detail=str(exception)) from exception
     spoken_text = re.sub(r"\s+", " ", text).strip()
     if not spoken_text:
         raise HTTPException(status_code=400, detail="Enter text to synthesize.")
@@ -955,6 +976,7 @@ async def render_text(
         spoken_text,
         delivery_tag,
         performance_mode,
+        segmentation,
     )
     if not synthesis_sections:
         raise HTTPException(

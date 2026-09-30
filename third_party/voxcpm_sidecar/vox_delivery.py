@@ -477,9 +477,7 @@ def specialize_delivery(
     features: Mapping[str, float],
     transcript: str,
 ) -> DeliveryReading:
-    if delivery_profile.casefold() != "carth":
-        return reading
-
+    profile = delivery_profile.casefold()
     lowered = re.sub(r"\s+", " ", transcript.casefold()).strip()
     energy_slope = _value(features, "energy_slope_db", 0.0)
     pause_ratio = _value(features, "pause_ratio", 0.08)
@@ -492,6 +490,67 @@ def specialize_delivery(
             expressiveness=reading.expressiveness,
             intensity=reading.intensity,
         )
+
+    if profile == "wren":
+        if re.search(r"\boh,? now you have found a good one\b", lowered):
+            return specialized(
+                "warm",
+                (
+                    "Let a small, private delight enter as the scholar recognizes "
+                    "the child's curiosity. Keep it intimate and spontaneous, never "
+                    "announcer-like or theatrically avuncular."
+                ),
+            )
+        if re.search(r"\balmost certainly\b", lowered):
+            return specialized(
+                "warm",
+                (
+                    "Answer with gentle, matter-of-fact certainty. Give the child a "
+                    "real answer without grandeur, mystery-voice affect, or a knowing "
+                    "pause added for drama."
+                ),
+            )
+        if re.search(
+            r"(?:\blong before\b|\bwhen cities themselves were new\b|"
+            r"\bthere was uruk\b|\bgilgamesh\b)",
+            lowered,
+        ):
+            return specialized(
+                "reflective",
+                (
+                    "Begin as one person speaking to one child, then let historical "
+                    "scale widen through breath and phrasing rather than volume. Keep "
+                    "the final proper name clean, grounded, and editorially decisive."
+                ),
+            )
+        return reading
+
+    if profile == "charlie":
+        if "?" in transcript or re.search(
+            r"(?:\bwas he real\b|\bwhat happened\b|\bwhy\b|\bhow\b)",
+            lowered,
+        ):
+            return specialized(
+                "questioning",
+                (
+                    "Use quiet, unperformed curiosity: the thought forms just before "
+                    "the words. Preserve the performer's breath and hesitation while "
+                    "avoiding sing-song child acting, cartoon brightness, or a forced "
+                    "upward ending."
+                ),
+            )
+        if re.search(r"(?:\blook\b|\bwow\b|\buruk\b|\breal city\b)", lowered):
+            return specialized(
+                "warm",
+                (
+                    "Let wonder register as focused attention rather than excitement "
+                    "for its own sake. Keep the voice small, observant, and natural."
+                ),
+            )
+        return reading
+
+    if profile != "carth":
+        return reading
 
     genuine_concern = bool(
         re.search(

@@ -251,6 +251,66 @@ class CharacterDeliveryTests(unittest.TestCase):
         reading = detect_delivery(self.FEATURES, text)
         return specialize_delivery("carth", reading, self.FEATURES, text)
 
+    def test_maps_wren_discovery_to_private_warmth(self) -> None:
+        reading = detect_delivery(
+            self.FEATURES,
+            "Oh, now you have found a good one.",
+        )
+
+        specialized = specialize_delivery(
+            "wren",
+            reading,
+            self.FEATURES,
+            "Oh, now you have found a good one.",
+        )
+
+        self.assertEqual(specialized.label, "warm")
+        self.assertIn("private delight", specialized.instruction)
+
+    def test_maps_wren_history_to_intimate_reflection(self) -> None:
+        text = "Long before Rome, when cities themselves were new, there was Uruk."
+        reading = detect_delivery(self.FEATURES, text)
+
+        specialized = specialize_delivery(
+            "wren",
+            reading,
+            self.FEATURES,
+            text,
+        )
+
+        self.assertEqual(specialized.label, "reflective")
+        self.assertIn("one child", specialized.instruction)
+        self.assertIn("editorially decisive", specialized.instruction)
+
+    def test_maps_charlie_question_to_unperformed_curiosity(self) -> None:
+        text = "So what happened to him?"
+        reading = detect_delivery(self.FEATURES, text)
+
+        specialized = specialize_delivery(
+            "charlie",
+            reading,
+            self.FEATURES,
+            text,
+        )
+
+        self.assertEqual(specialized.label, "questioning")
+        self.assertIn("thought forms just before the words", specialized.instruction)
+        self.assertIn("avoiding sing-song child acting", specialized.instruction)
+
+    def test_maps_charlie_wonder_to_focused_attention(self) -> None:
+        text = "Look. Uruk was a real city."
+        reading = detect_delivery(self.FEATURES, text)
+
+        specialized = specialize_delivery(
+            "charlie",
+            reading,
+            self.FEATURES,
+            text,
+        )
+
+        self.assertEqual(specialized.label, "warm")
+        self.assertIn("focused attention", specialized.instruction)
+
     def test_maps_carth_sarcasm_to_dry_wry_skepticism(self) -> None:
         reading = self.carth_delivery(
             "So it's a popularity contest, basically? Wonderful."
