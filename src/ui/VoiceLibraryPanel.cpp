@@ -1,5 +1,6 @@
 #include "ui/VoiceLibraryPanel.h"
 
+#include "platform/win/AppPaths.h"
 #include "secrets/DpapiVault.h"
 #include "ui/CloneVoiceDialog.h"
 
@@ -30,6 +31,7 @@
 #include <iomanip>
 #include <memory>
 #include <sstream>
+#include <unordered_set>
 #include <utility>
 
 namespace voxstudio::ui {
@@ -130,6 +132,46 @@ voiceRecordsFromInfos(const std::vector<net::elevenlabs::VoiceInfo>& voices) {
     return records;
 }
 
+[[nodiscard]] std::unordered_set<std::string> locallySuppressedVoiceIds() {
+    const auto appData = platform::win::voxStudioDataPath();
+    if (!appData.has_value()) {
+        return {};
+    }
+
+    std::ifstream input{*appData / "voice_suppressions.json"};
+    if (!input) {
+        return {};
+    }
+
+    try {
+        const auto document = nlohmann::json::parse(input);
+        if (!document.contains("voice_ids") || !document["voice_ids"].is_array()) {
+            return {};
+        }
+
+        std::unordered_set<std::string> ids;
+        for (const auto& value : document["voice_ids"]) {
+            if (value.is_string() && !value.get_ref<const std::string&>().empty()) {
+                ids.insert(value.get<std::string>());
+            }
+        }
+        return ids;
+    } catch (const nlohmann::json::exception&) {
+        return {};
+    }
+}
+
+void removeLocallySuppressedVoices(std::vector<net::elevenlabs::VoiceInfo>& voices) {
+    const auto suppressedIds = locallySuppressedVoiceIds();
+    if (suppressedIds.empty()) {
+        return;
+    }
+
+    std::erase_if(voices, [&suppressedIds](const auto& voice) {
+        return suppressedIds.contains(voice.voiceId);
+    });
+}
+
 [[nodiscard]] net::elevenlabs::VoiceInfo voiceInfoFromRecord(const db::VoiceRecord& record) {
     net::elevenlabs::VoiceInfo voice;
     voice.voiceId = record.id;
@@ -164,9 +206,12 @@ voiceRecordsFromInfos(const std::vector<net::elevenlabs::VoiceInfo>& voices) {
                                       apiErrorText(voices.error()), {}};
     }
 
+    auto visibleVoices = std::move(voices).value().voices;
+    removeLocallySuppressedVoices(visibleVoices);
+
     const db::VoiceRepository repository;
     auto cached = repository.replaceVoices(project.rootPath(),
-                                           voiceRecordsFromInfos(voices.value().voices));
+                                           voiceRecordsFromInfos(visibleVoices));
     if (!cached) {
         return VoiceLibraryTaskResult{VoiceLibraryTaskKind::Refresh, false,
                                       QString::fromStdString(cached.error().message), {}};
@@ -175,7 +220,7 @@ voiceRecordsFromInfos(const std::vector<net::elevenlabs::VoiceInfo>& voices) {
     return VoiceLibraryTaskResult{VoiceLibraryTaskKind::Refresh,
                                   true,
                                   QStringLiteral("Voice library refreshed."),
-                                  std::move(voices).value().voices};
+                                  std::move(visibleVoices)};
 }
 
 [[nodiscard]] VoiceLibraryTaskResult cloneCloudVoice(
