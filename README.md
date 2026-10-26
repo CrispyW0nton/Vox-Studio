@@ -6,6 +6,12 @@ Vox Studio is a C++20/Qt desktop app for producing game dialogue: project
 management, script import, voice library tools, ElevenLabs integration,
 VoxCPM2 character performance rendering, take management, dialogue sequencing,
 Performance Mirror live voice conversion, and imported RVC voice conversion.
+The native Voice Lab brings local engines, character labs, emotion controls,
+render previews and recovery tools into one workspace.
+
+Start with [Voice Lab](docs/DESKTOP_VOICE_LAB.md),
+[emotion and narration auditions](docs/NARRATION_AUDITIONS.md), or
+[recovery on another machine](docs/RECOVERY.md).
 
 > Current status: early test build. The app can be built and launched locally,
 > the unit/Qt test suite is active, Performance Mirror prefers locally trained
@@ -20,7 +26,13 @@ Performance Mirror live voice conversion, and imported RVC voice conversion.
   the native **Voice Lab** workspace, including the KJA Atris/Atton/Bao-Dur
   selections and VoxCPM2, GPT-SoVITS, IndexTTS, Qwen and Chatterbox audition
   workflows. See [desktop workflow and qualification](docs/DESKTOP_VOICE_LAB.md).
-
+- Supports IndexTTS-2.5 emotion vectors per phrase, Chatterbox expression
+  controls and Qwen narration options through preview-bound audition recipes.
+  See [audition controls and engine requirements](docs/NARRATION_AUDITIONS.md).
+- Preserves 63 character-laboratory Python source files with a SHA256 manifest,
+  upstream engine revisions and [recovery instructions](docs/RECOVERY.md).
+- Includes narration chunk assembly and timing review tools alongside the
+  character corpus, training, rendering and evaluation tools.
 - Stores game voice projects locally with SQLite-backed `.vox` project data.
 - Saves ElevenLabs API keys with Windows DPAPI, not plaintext config files.
 - Imports scripts from plain text, CSV, Fountain, Ren'Py, and Yarn-style JSON.
@@ -37,13 +49,19 @@ Performance Mirror live voice conversion, and imported RVC voice conversion.
 ## Requirements
 
 - Windows 10/11 x64.
-- Visual Studio 2022 with the `Desktop development with C++` workload.
+- Visual Studio 2022 (17.x) with the `Desktop development with C++` workload.
+  The supplied presets explicitly select its CMake generator.
 - CMake 3.27 or newer.
 - vcpkg, available through `VCPKG_ROOT`.
 - Git.
+- Python 3.12 for the CPU tool tests, with dependencies from
+  `tests/requirements.txt`. Keep GPU engine packages in separate environments.
 
 The project uses vcpkg manifest mode. The CI workflow pins vcpkg to baseline
 `e6ed7c5be05eaedc2d06ee3e51bd059409429c5e`.
+CI uses the `windows-2022` runner to match the Visual Studio 2022 presets.
+`windows-latest` can select a newer Visual Studio generation that those presets
+cannot use. A compiler preflight runs before dependency installation.
 
 ## Quick Start
 
@@ -57,15 +75,29 @@ $env:VCPKG_ROOT = 'C:\vcpkg'
 if (!(Test-Path "$env:VCPKG_ROOT\.git")) {
   git clone https://github.com/microsoft/vcpkg.git $env:VCPKG_ROOT
 }
+git -C $env:VCPKG_ROOT fetch origin e6ed7c5be05eaedc2d06ee3e51bd059409429c5e --depth 1
+git -C $env:VCPKG_ROOT checkout e6ed7c5be05eaedc2d06ee3e51bd059409429c5e
 & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat"
 ```
 
-Configure, build, and test Release:
+From a Visual Studio 2022 developer PowerShell, create a CPU test environment,
+then configure, build and test Release:
 
 ```powershell
-cmake --preset windows-msvc-release
+py -3.12 -m venv .venv-tests
+& .\.venv-tests\Scripts\python.exe -m pip install -r tests\requirements.txt
+cmake --preset windows-msvc-release "-DPython3_EXECUTABLE=$PWD/.venv-tests/Scripts/python.exe"
 cmake --build --preset windows-msvc-release
 ctest --preset windows-msvc-release --output-on-failure
+```
+
+The first configure can take a long time while vcpkg builds Qt and the other
+native dependencies. CTest includes native C++/Qt tests and CPU Python tool
+tests; it does not download voice models or verify GPU synthesis and acting
+quality. For tool tests without a native build, run:
+
+```powershell
+& .\.venv-tests\Scripts\python.exe -B -m unittest discover -s tests/tools -p 'test_*.py'
 ```
 
 Run the app:
@@ -83,6 +115,18 @@ The current emotion controls, Voice Lab launchers and character-laboratory sourc
 are preserved in this repository. See [machine recovery](docs/RECOVERY.md) for
 the source manifest, upstream engine revisions and the private data that must be
 backed up separately.
+
+The source snapshot can be verified without loading any engine:
+
+```powershell
+& .\.venv-tests\Scripts\python.exe tests/tools/test_character_lab_snapshot.py
+```
+
+Restoring those tools requires the sibling `baodur-lab` and `characters`
+directories plus the private character configuration and voice data. Configure
+`labRoot` and `voicesRoot` in `%LOCALAPPDATA%\VoxStudio\voice_lab.json` as
+described in the [recovery guide](docs/RECOVERY.md). The desktop uses that
+external laboratory; the checked-in snapshot is its recovery source.
 
 Vox Studio stores user/runtime data under:
 
@@ -375,7 +419,7 @@ More detail is in [docs/RVC_NATIVE.md](docs/RVC_NATIVE.md).
 
 ```text
 cmake/                 CMake helpers for Qt, warnings, and packaging
-docs/                  development plan, architecture notes, RVC docs, ADRs
+docs/                  Voice Lab, audition, recovery, architecture and RVC docs
 installer/             Inno Setup snippets and future installer work
 resources/             icons, models, QML, translations placeholders
 src/app/               app entry point and logging
@@ -392,7 +436,8 @@ src/ui/                Qt widgets and dialogs
 src/voxcpm/            VoxCPM2 service process and HTTP client
 tests/                 Catch2, Qt, fixture, and tool tests
 third_party/           vendored headers/metadata only, not heavyweight payloads
-tools/                 smoke tools, RVC utilities, compatibility sidecar source
+tools/                 Voice Lab, audition, narration, corpus and RVC tools
+tools/character_lab/   63 manifest-verified character-laboratory recovery sources
 ```
 
 ## Useful Commands
@@ -443,7 +488,7 @@ model learns his conversational recording rather than the in-game radio effect.
   contracts, and Qt panels.
 - Keep LGPL dependencies dynamically linked.
 - Large runtime payloads belong in installer/runtime delivery, not git.
-- See [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md) for the pass-based
+- See [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md) for the pass-based
   roadmap.
 
 ## License
