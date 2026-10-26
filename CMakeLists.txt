@@ -217,6 +217,8 @@ set(VOXSTUDIO_APP_SOURCES
     src/ui/TimelinePanel.h
     src/ui/VoiceLibraryPanel.cpp
     src/ui/VoiceLibraryPanel.h
+    src/ui/VoiceLabPanel.cpp
+    src/ui/VoiceLabPanel.h
 )
 
 qt_add_executable(VoxStudio MANUAL_FINALIZATION WIN32 ${VOXSTUDIO_APP_SOURCES})
@@ -256,6 +258,17 @@ target_compile_definitions(
 voxstudio_apply_project_warnings(VoxStudioRvcNativeSmoke)
 
 if(WIN32)
+    add_custom_target(VoxStudioVoiceLabBundle ALL
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:VoxStudio>/voice_lab"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_CURRENT_SOURCE_DIR}/tools/voice_studio_lab.py"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tools/narration_audition.py"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tools/indextts_audition.py"
+                "$<TARGET_FILE_DIR:VoxStudio>/voice_lab"
+        COMMENT "Synchronizing Voice Lab desktop workers"
+        VERBATIM
+    )
+    add_dependencies(VoxStudio VoxStudioVoiceLabBundle)
     add_custom_command(
         TARGET VoxStudio
         POST_BUILD
@@ -452,7 +465,24 @@ if(BUILD_TESTING)
     voxstudio_deploy_qt_platform_plugin(VoxStudioTextToSpeechQtTests)
     add_test(NAME VoxStudioTextToSpeechQtTests COMMAND VoxStudioTextToSpeechQtTests)
 
+    add_executable(VoxStudioVoiceLabQtTests
+        tests/unit/test_voice_lab_panel.cpp
+        src/ui/VoiceLabPanel.cpp src/ui/VoiceLabPanel.h)
+    target_include_directories(VoxStudioVoiceLabQtTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(VoxStudioVoiceLabQtTests PRIVATE Qt6::Core Qt6::Test Qt6::Widgets)
+    voxstudio_apply_project_warnings(VoxStudioVoiceLabQtTests)
+    voxstudio_deploy_qt_platform_plugin(VoxStudioVoiceLabQtTests)
+    add_test(NAME VoxStudioVoiceLabQtTests COMMAND VoxStudioVoiceLabQtTests)
+
     if(Python3_Interpreter_FOUND)
+        add_test(NAME VoxStudioNarrationAuditionTests
+            COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/test_narration_audition.py")
+        add_test(NAME VoxStudioIndexTtsAuditionTests
+            COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/test_indextts_audition.py")
+        add_test(NAME VoxStudioCharacterLabSourceTests
+            COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/test_character_lab_snapshot.py")
+        add_test(NAME VoxStudioVoiceLabToolTests
+            COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/test_voice_studio_lab.py")
         add_test(
             NAME VoxStudioRvcToolTests
             COMMAND ${Python3_EXECUTABLE}

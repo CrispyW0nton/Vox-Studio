@@ -16,6 +16,11 @@ Performance Mirror live voice conversion, and imported RVC voice conversion.
 
 ## What It Does
 
+- Consolidates character labs, checkpoints, listening packs and local engines in
+  the native **Voice Lab** workspace, including the KJA Atris/Atton/Bao-Dur
+  selections and VoxCPM2, GPT-SoVITS, IndexTTS, Qwen and Chatterbox audition
+  workflows. See [desktop workflow and qualification](docs/DESKTOP_VOICE_LAB.md).
+
 - Stores game voice projects locally with SQLite-backed `.vox` project data.
 - Saves ElevenLabs API keys with Windows DPAPI, not plaintext config files.
 - Imports scripts from plain text, CSV, Fountain, Ren'Py, and Yarn-style JSON.
@@ -73,6 +78,11 @@ Debug builds use the `windows-msvc-debug` preset and output to
 `C:\_b\voxstudio\d\Debug\`.
 
 ## Local Runtime Data
+
+The current emotion controls, Voice Lab launchers and character-laboratory source
+are preserved in this repository. See [machine recovery](docs/RECOVERY.md) for
+the source manifest, upstream engine revisions and the private data that must be
+backed up separately.
 
 Vox Studio stores user/runtime data under:
 

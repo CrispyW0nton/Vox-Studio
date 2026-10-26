@@ -1,0 +1,3 @@
+# CPU-only audition contract tests; no voice models or GPU frameworks.
+numpy==2.2.6
+soundfile==0.13.1

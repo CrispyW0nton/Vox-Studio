@@ -114,11 +114,22 @@ def read_dialogue_records(
     records: dict[str, DialogueRecord] = {}
     seen_resources: set[tuple[str, int, int]] = set()
     token = (voiceover_token or character_token).casefold()
-    for module_name in installation.modules_list():
-        try:
-            resources = installation.module_resources(module_name)
-        except Exception:
-            continue
+    def resource_groups():
+        for module_name in installation.modules_list():
+            try:
+                yield installation.module_resources(module_name)
+            except Exception:
+                continue
+        # Party-member conversations live outside the modules: KOTOR keeps them in the
+        # core BIF archives (Jolee's m35aa/jole09 lines) and mods place fixed copies in
+        # Override. Override is read before core so patched dialogue wins.
+        for group in ("override_resources", "core_resources"):
+            try:
+                yield getattr(installation, group)()
+            except Exception:
+                continue
+
+    for resources in resource_groups():
         for resource in resources:
             if resource.restype() != ResourceType.DLG:
                 continue

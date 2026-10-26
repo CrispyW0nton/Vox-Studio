@@ -1,4 +1,6 @@
 #include "ui/MainWindow.h"
+#include "ui/VoiceLabPanel.h"
+#include <QCloseEvent>
 
 #include "ui/NewProjectWizard.h"
 #include "ui/LiveMicPanel.h"
@@ -108,6 +110,9 @@ void MainWindow::createWorkspace() {
     m_textToSpeechPanel = textToSpeech.get();
     tabs->addTab(textToSpeech.release(), QStringLiteral("Text to Speech"));
 
+    m_voiceLabPanel = new VoiceLabPanel(tabs.get());
+    tabs->addTab(m_voiceLabPanel, QStringLiteral("Voice Lab"));
+
     auto timeline = std::make_unique<TimelinePanel>(tabs.get());
     m_timelinePanel = timeline.get();
     connect(m_timelinePanel, &TimelinePanel::sequenceChanged, this,
@@ -142,6 +147,16 @@ void MainWindow::setCurrentProject(core::Project project) {
     if (m_liveMicPanel != nullptr) {
         m_liveMicPanel->setProject(m_currentProject);
     }
+}
+
+void MainWindow::closeEvent(QCloseEvent* event) {
+    if (m_voiceLabPanel && m_voiceLabPanel->isRunning()) {
+        QMessageBox::information(this, QStringLiteral("Voice Lab is running"),
+                                 QStringLiteral("Stop the Voice Lab render or wait for the preview to finish before closing Vox Studio."));
+        event->ignore();
+        return;
+    }
+    QMainWindow::closeEvent(event);
 }
 
 void MainWindow::setDirty(const bool isDirty) {
