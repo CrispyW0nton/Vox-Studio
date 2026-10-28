@@ -31,6 +31,29 @@ find_library(SOXR_LIBRARY soxr REQUIRED)
 
 qt_standard_project_setup(REQUIRES 6.7)
 
+function(voxstudio_deploy_qt_platform_plugin target)
+    if(NOT WIN32)
+        return()
+    endif()
+    if(NOT TARGET Qt6::QWindowsIntegrationPlugin)
+        message(FATAL_ERROR "Qt Windows platform plugin target is required for deployment.")
+    endif()
+
+    set(destination
+        "$<TARGET_FILE_DIR:${target}>/platforms/$<TARGET_FILE_NAME:Qt6::QWindowsIntegrationPlugin>"
+    )
+    add_custom_command(
+        TARGET ${target}
+        POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${target}>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_FILE:Qt6::QWindowsIntegrationPlugin>"
+                "${destination}"
+        COMMENT "Deploying Qt Windows platform plugin for ${target}"
+        VERBATIM
+    )
+endfunction()
+
 set(VOXSTUDIO_CORE_SOURCES
     src/audio/AudioEngine.cpp
     src/audio/AudioEngine.h
@@ -59,6 +82,8 @@ set(VOXSTUDIO_CORE_SOURCES
     src/core/SequenceRenderer.h
     src/core/TakeManager.cpp
     src/core/TakeManager.h
+    src/core/TextSegmentation.cpp
+    src/core/TextSegmentation.h
     src/db/Database.cpp
     src/db/Database.h
     src/db/Migrations.cpp
@@ -103,6 +128,8 @@ set(VOXSTUDIO_CORE_SOURCES
     src/net/elevenlabs/VoicesApi.h
     src/platform/win/AppPaths.cpp
     src/platform/win/AppPaths.h
+    src/performance_mirror/PerformanceMirrorSidecar.cpp
+    src/performance_mirror/PerformanceMirrorSidecar.h
     src/rvc/F0Extractor.cpp
     src/rvc/F0Extractor.h
     src/rvc/HubertEncoder.cpp
@@ -119,6 +146,10 @@ set(VOXSTUDIO_CORE_SOURCES
     src/rvc/RvcSidecar.h
     src/secrets/DpapiVault.cpp
     src/secrets/DpapiVault.h
+    src/voxcpm/VoxCpmClient.cpp
+    src/voxcpm/VoxCpmClient.h
+    src/voxcpm/VoxCpmSidecar.cpp
+    src/voxcpm/VoxCpmSidecar.h
 )
 
 add_library(VoxStudioCore STATIC ${VOXSTUDIO_CORE_SOURCES})
@@ -180,10 +211,14 @@ set(VOXSTUDIO_APP_SOURCES
     src/ui/ScriptViewerPanel.h
     src/ui/TakeListWidget.cpp
     src/ui/TakeListWidget.h
+    src/ui/TextToSpeechPanel.cpp
+    src/ui/TextToSpeechPanel.h
     src/ui/TimelinePanel.cpp
     src/ui/TimelinePanel.h
     src/ui/VoiceLibraryPanel.cpp
     src/ui/VoiceLibraryPanel.h
+    src/ui/VoiceLabPanel.cpp
+    src/ui/VoiceLabPanel.h
 )
 
 qt_add_executable(VoxStudio MANUAL_FINALIZATION WIN32 ${VOXSTUDIO_APP_SOURCES})
@@ -210,6 +245,7 @@ target_compile_definitions(
 )
 
 voxstudio_apply_project_warnings(VoxStudio)
+voxstudio_deploy_qt_platform_plugin(VoxStudio)
 
 add_executable(VoxStudioRvcNativeSmoke tools/rvc_native_smoke.cpp)
 target_include_directories(VoxStudioRvcNativeSmoke PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
@@ -222,22 +258,33 @@ target_compile_definitions(
 voxstudio_apply_project_warnings(VoxStudioRvcNativeSmoke)
 
 if(WIN32)
-    if(NOT TARGET Qt6::QWindowsIntegrationPlugin)
-        message(FATAL_ERROR "Qt Windows platform plugin target is required for deployment.")
-    endif()
-
-    set(QT_WINDOWS_PLUGIN_NAME "$<TARGET_FILE_NAME:Qt6::QWindowsIntegrationPlugin>")
-    set(VOXSTUDIO_QT_PLATFORM_PLUGIN
-        "$<TARGET_FILE_DIR:VoxStudio>/platforms/${QT_WINDOWS_PLUGIN_NAME}"
+    add_custom_target(VoxStudioVoiceLabBundle ALL
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:VoxStudio>/voice_lab"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_CURRENT_SOURCE_DIR}/tools/voice_studio_lab.py"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tools/narration_audition.py"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tools/indextts_audition.py"
+                "$<TARGET_FILE_DIR:VoxStudio>/voice_lab"
+        COMMENT "Synchronizing Voice Lab desktop workers"
+        VERBATIM
+    )
+    add_dependencies(VoxStudio VoxStudioVoiceLabBundle)
+    add_custom_command(
+        TARGET VoxStudio
+        POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_CURRENT_SOURCE_DIR}/third_party/voxcpm_sidecar"
+                "$<TARGET_FILE_DIR:VoxStudio>/voxcpm_sidecar"
+        COMMENT "Deploying VoxCPM2 sidecar for VoxStudio"
+        VERBATIM
     )
     add_custom_command(
         TARGET VoxStudio
         POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:VoxStudio>/platforms"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "$<TARGET_FILE:Qt6::QWindowsIntegrationPlugin>"
-                "${VOXSTUDIO_QT_PLATFORM_PLUGIN}"
-        COMMENT "Deploying Qt Windows platform plugin for VoxStudio"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_CURRENT_SOURCE_DIR}/third_party/performance_mirror_sidecar"
+                "$<TARGET_FILE_DIR:VoxStudio>/performance_mirror_sidecar"
+        COMMENT "Deploying Performance Mirror sidecar for VoxStudio"
         VERBATIM
     )
 endif()
@@ -260,6 +307,7 @@ if(BUILD_TESTING)
         tests/unit/test_live_audio.cpp
         tests/unit/test_speech_phrase_buffer.cpp
         tests/unit/test_onnx_rvc_engine.cpp
+        tests/unit/test_performance_mirror_sidecar.cpp
         tests/unit/test_project_repository.cpp
         tests/unit/test_rvc_client.cpp
         tests/unit/test_rvc_model_registry.cpp
@@ -270,12 +318,19 @@ if(BUILD_TESTING)
         tests/unit/test_sequence_repository.cpp
         tests/unit/test_sts_api.cpp
         tests/unit/test_take_manager.cpp
+        tests/unit/test_text_segmentation.cpp
         tests/unit/test_tts_api.cpp
         tests/unit/test_smoke.cpp
         tests/unit/test_voice_repository.cpp
         tests/unit/test_voices_api.cpp
+        tests/unit/test_voxcpm_client.cpp
     )
     target_link_libraries(VoxStudioUnitTests PRIVATE Catch2::Catch2WithMain VoxStudioCore)
+    target_include_directories(
+        VoxStudioUnitTests
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+                "${SNDFILE_INCLUDE_DIR}"
+    )
     target_compile_definitions(
         VoxStudioUnitTests
         PRIVATE VOXSTUDIO_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
@@ -308,23 +363,33 @@ if(BUILD_TESTING)
         PRIVATE VOXSTUDIO_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
     )
     voxstudio_apply_project_warnings(VoxStudioQtTests)
-    if(WIN32)
-        set(VOXSTUDIO_QT_TEST_PLATFORM_PLUGIN
-            "$<TARGET_FILE_DIR:VoxStudioQtTests>/platforms/${QT_WINDOWS_PLUGIN_NAME}"
-        )
-        add_custom_command(
-            TARGET VoxStudioQtTests
-            POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E make_directory
-                    "$<TARGET_FILE_DIR:VoxStudioQtTests>/platforms"
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    "$<TARGET_FILE:Qt6::QWindowsIntegrationPlugin>"
-                    "${VOXSTUDIO_QT_TEST_PLATFORM_PLUGIN}"
-            COMMENT "Deploying Qt Windows platform plugin for VoxStudioQtTests"
-            VERBATIM
-        )
-    endif()
+    voxstudio_deploy_qt_platform_plugin(VoxStudioQtTests)
     add_test(NAME VoxStudioQtTests COMMAND VoxStudioQtTests)
+
+    add_executable(
+        VoxStudioSettingsQtTests
+        tests/unit/test_settings_dialog.cpp
+        src/ui/RvcModelManagerDialog.cpp
+        src/ui/RvcModelManagerDialog.h
+        src/ui/SettingsDialog.cpp
+        src/ui/SettingsDialog.h
+    )
+    target_include_directories(
+        VoxStudioSettingsQtTests
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+    )
+    target_link_libraries(
+        VoxStudioSettingsQtTests
+        PRIVATE Qt6::Concurrent
+                Qt6::Core
+                Qt6::Test
+                Qt6::Widgets
+                VoxStudioCore
+    )
+    voxstudio_apply_project_warnings(VoxStudioSettingsQtTests)
+    voxstudio_deploy_qt_platform_plugin(VoxStudioSettingsQtTests)
+    add_test(NAME VoxStudioSettingsQtTests COMMAND VoxStudioSettingsQtTests)
 
     add_executable(
         VoxStudioTimelineQtTests
@@ -348,22 +413,7 @@ if(BUILD_TESTING)
         PRIVATE VOXSTUDIO_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
     )
     voxstudio_apply_project_warnings(VoxStudioTimelineQtTests)
-    if(WIN32)
-        set(VOXSTUDIO_TIMELINE_QT_TEST_PLATFORM_PLUGIN
-            "$<TARGET_FILE_DIR:VoxStudioTimelineQtTests>/platforms/${QT_WINDOWS_PLUGIN_NAME}"
-        )
-        add_custom_command(
-            TARGET VoxStudioTimelineQtTests
-            POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E make_directory
-                    "$<TARGET_FILE_DIR:VoxStudioTimelineQtTests>/platforms"
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    "$<TARGET_FILE:Qt6::QWindowsIntegrationPlugin>"
-                    "${VOXSTUDIO_TIMELINE_QT_TEST_PLATFORM_PLUGIN}"
-            COMMENT "Deploying Qt Windows platform plugin for VoxStudioTimelineQtTests"
-            VERBATIM
-        )
-    endif()
+    voxstudio_deploy_qt_platform_plugin(VoxStudioTimelineQtTests)
     add_test(NAME VoxStudioTimelineQtTests COMMAND VoxStudioTimelineQtTests)
 
     add_executable(
@@ -388,32 +438,106 @@ if(BUILD_TESTING)
                 VoxStudioCore
     )
     voxstudio_apply_project_warnings(VoxStudioLiveMicQtTests)
-    if(WIN32)
-        set(VOXSTUDIO_LIVE_MIC_QT_TEST_PLATFORM_PLUGIN
-            "$<TARGET_FILE_DIR:VoxStudioLiveMicQtTests>/platforms/${QT_WINDOWS_PLUGIN_NAME}"
-        )
-        add_custom_command(
-            TARGET VoxStudioLiveMicQtTests
-            POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E make_directory
-                    "$<TARGET_FILE_DIR:VoxStudioLiveMicQtTests>/platforms"
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    "$<TARGET_FILE:Qt6::QWindowsIntegrationPlugin>"
-                    "${VOXSTUDIO_LIVE_MIC_QT_TEST_PLATFORM_PLUGIN}"
-            COMMENT "Deploying Qt Windows platform plugin for VoxStudioLiveMicQtTests"
-            VERBATIM
-        )
-    endif()
+    voxstudio_deploy_qt_platform_plugin(VoxStudioLiveMicQtTests)
     add_test(NAME VoxStudioLiveMicQtTests COMMAND VoxStudioLiveMicQtTests)
 
+    add_executable(
+        VoxStudioTextToSpeechQtTests
+        tests/unit/test_text_to_speech_panel.cpp
+        src/ui/TakeListWidget.cpp
+        src/ui/TakeListWidget.h
+        src/ui/TextToSpeechPanel.cpp
+        src/ui/TextToSpeechPanel.h
+    )
+    target_include_directories(
+        VoxStudioTextToSpeechQtTests
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        VoxStudioTextToSpeechQtTests
+        PRIVATE Qt6::Concurrent
+                Qt6::Core
+                Qt6::Test
+                Qt6::Widgets
+                VoxStudioCore
+    )
+    voxstudio_apply_project_warnings(VoxStudioTextToSpeechQtTests)
+    voxstudio_deploy_qt_platform_plugin(VoxStudioTextToSpeechQtTests)
+    add_test(NAME VoxStudioTextToSpeechQtTests COMMAND VoxStudioTextToSpeechQtTests)
+
+    add_executable(VoxStudioVoiceLabQtTests
+        tests/unit/test_voice_lab_panel.cpp
+        src/ui/VoiceLabPanel.cpp src/ui/VoiceLabPanel.h)
+    target_include_directories(VoxStudioVoiceLabQtTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(VoxStudioVoiceLabQtTests PRIVATE Qt6::Core Qt6::Test Qt6::Widgets)
+    voxstudio_apply_project_warnings(VoxStudioVoiceLabQtTests)
+    voxstudio_deploy_qt_platform_plugin(VoxStudioVoiceLabQtTests)
+    add_test(NAME VoxStudioVoiceLabQtTests COMMAND VoxStudioVoiceLabQtTests)
+
     if(Python3_Interpreter_FOUND)
+        add_test(NAME VoxStudioNarrationAuditionTests
+            COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/test_narration_audition.py")
+        add_test(NAME VoxStudioIndexTtsAuditionTests
+            COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/test_indextts_audition.py")
+        add_test(NAME VoxStudioCharacterLabSourceTests
+            COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/test_character_lab_snapshot.py")
+        add_test(NAME VoxStudioVoiceLabToolTests
+            COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/test_voice_studio_lab.py")
         add_test(
             NAME VoxStudioRvcToolTests
             COMMAND ${Python3_EXECUTABLE}
                     "${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/test_rvc_onnx_tools.py"
         )
+        add_test(
+            NAME VoxStudioRvcSidecarTests
+            COMMAND ${Python3_EXECUTABLE}
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/test_rvc_sidecar.py"
+        )
+        add_test(
+            NAME VoxStudioPerformanceMirrorSidecarTests
+            COMMAND ${Python3_EXECUTABLE}
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/test_performance_mirror_sidecar.py"
+        )
+        add_test(
+            NAME VoxStudioCharacterRvcTrainingToolTests
+            COMMAND ${Python3_EXECUTABLE}
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/test_train_character_rvc.py"
+        )
+        add_test(
+            NAME VoxStudioVoxCpmDeliveryTests
+            COMMAND ${Python3_EXECUTABLE}
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/test_voxcpm_delivery.py"
+        )
+        add_test(
+            NAME VoxStudioVoxCpmProfileTests
+            COMMAND ${Python3_EXECUTABLE}
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/test_voxcpm_profiles.py"
+        )
+        add_test(
+            NAME VoxStudioVoxCpmTextTests
+            COMMAND ${Python3_EXECUTABLE}
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/test_voxcpm_text.py"
+        )
+        add_test(
+            NAME VoxStudioKotorAudioDatasetTests
+            COMMAND ${Python3_EXECUTABLE}
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/test_kotor_audio_dataset.py"
+        )
     else()
-        message(WARNING "Python3 interpreter not found; RVC ONNX tool tests are disabled.")
+        message(WARNING "Python3 interpreter not found; Python tool tests are disabled.")
+    endif()
+
+    if(WIN32)
+        find_program(POWERSHELL_EXECUTABLE pwsh REQUIRED)
+        add_test(
+            NAME VoxStudioSecretScannerTests
+            COMMAND ${POWERSHELL_EXECUTABLE}
+                    -NoProfile
+                    -File
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/test_secret_scanner.ps1"
+                    -ScannerPath
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_no_secrets.ps1"
+        )
     endif()
 
     add_test(NAME VoxStudioRvcNativeSmokeHelp COMMAND VoxStudioRvcNativeSmoke --help)

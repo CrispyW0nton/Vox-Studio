@@ -11,6 +11,7 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace voxstudio::secrets {
@@ -19,6 +20,8 @@ namespace {
 constexpr auto kSecretsDirectoryName = "secrets";
 constexpr auto kElevenLabsSecretFileName = "elevenlabs.bin";
 constexpr auto kEntropyText = "VoxStudio.ElevenLabs.ApiKey.v1";
+constexpr std::string_view kValidatedPayloadPrefix =
+    "VoxStudio.ElevenLabs.Validated.v1\n";
 
 class LocalBlob final {
 public:
@@ -71,61 +74,14 @@ private:
     return core::makeError(core::ErrorCode::SecretStorageFailed, message);
 }
 
-} // namespace
-
-DpapiVault::DpapiVault()
-    : m_secretFilePath(defaultSecretFilePath()) {}
-
-DpapiVault::DpapiVault(std::filesystem::path secretFilePath)
-    : m_secretFilePath(std::move(secretFilePath)) {}
-
-core::Expected<bool> DpapiVault::storeElevenLabsApiKey(const std::string& apiKey) const {
-    if (apiKey.empty()) {
-        return core::makeError(core::ErrorCode::InvalidArgument, "API key must not be empty.");
-    }
-    if (m_secretFilePath.empty()) {
+[[nodiscard]] core::Expected<std::string>
+loadSecretPayload(const std::filesystem::path& secretFilePath) {
+    if (secretFilePath.empty()) {
         return secretError("Unable to resolve the Vox Studio secrets directory.");
     }
 
     try {
-        std::filesystem::create_directories(m_secretFilePath.parent_path());
-
-        auto entropy = entropyBytes();
-        DATA_BLOB input = blobFromString(apiKey);
-        DATA_BLOB entropyBlob = blobFromBytes(entropy);
-        DATA_BLOB encrypted{};
-
-        if (CryptProtectData(&input, nullptr, &entropyBlob, nullptr, nullptr, 0, &encrypted) == 0) {
-            return secretError("CryptProtectData failed.");
-        }
-
-        const LocalBlob encryptedBlob{encrypted};
-        std::ofstream output{m_secretFilePath, std::ios::binary | std::ios::trunc};
-        if (!output) {
-            return secretError("Unable to open the ElevenLabs secret file for writing.");
-        }
-
-        const auto* data = reinterpret_cast<const char*>(encryptedBlob.get().pbData);
-        output.write(data, static_cast<std::streamsize>(encryptedBlob.get().cbData));
-        if (!output) {
-            return secretError("Unable to write the ElevenLabs secret file.");
-        }
-
-        return true;
-    } catch (const std::filesystem::filesystem_error& exception) {
-        return secretError(exception.what());
-    } catch (const std::exception& exception) {
-        return secretError(exception.what());
-    }
-}
-
-core::Expected<std::string> DpapiVault::loadElevenLabsApiKey() const {
-    if (m_secretFilePath.empty()) {
-        return secretError("Unable to resolve the Vox Studio secrets directory.");
-    }
-
-    try {
-        std::ifstream input{m_secretFilePath, std::ios::binary};
+        std::ifstream input{secretFilePath, std::ios::binary};
         if (!input) {
             return core::makeError(core::ErrorCode::ProjectNotFound,
                                    "ElevenLabs API key has not been saved.");
@@ -157,8 +113,77 @@ core::Expected<std::string> DpapiVault::loadElevenLabsApiKey() const {
     }
 }
 
+} // namespace
+
+DpapiVault::DpapiVault()
+    : m_secretFilePath(defaultSecretFilePath()) {}
+
+DpapiVault::DpapiVault(std::filesystem::path secretFilePath)
+    : m_secretFilePath(std::move(secretFilePath)) {}
+
+core::Expected<bool>
+DpapiVault::storeValidatedElevenLabsApiKey(const std::string& apiKey) const {
+    if (apiKey.empty()) {
+        return core::makeError(core::ErrorCode::InvalidArgument, "API key must not be empty.");
+    }
+    if (m_secretFilePath.empty()) {
+        return secretError("Unable to resolve the Vox Studio secrets directory.");
+    }
+
+    try {
+        std::filesystem::create_directories(m_secretFilePath.parent_path());
+
+        auto entropy = entropyBytes();
+        const auto payload = std::string{kValidatedPayloadPrefix} + apiKey;
+        DATA_BLOB input = blobFromString(payload);
+        DATA_BLOB entropyBlob = blobFromBytes(entropy);
+        DATA_BLOB encrypted{};
+
+        if (CryptProtectData(&input, nullptr, &entropyBlob, nullptr, nullptr, 0, &encrypted) == 0) {
+            return secretError("CryptProtectData failed.");
+        }
+
+        const LocalBlob encryptedBlob{encrypted};
+        std::ofstream output{m_secretFilePath, std::ios::binary | std::ios::trunc};
+        if (!output) {
+            return secretError("Unable to open the ElevenLabs secret file for writing.");
+        }
+
+        const auto* data = reinterpret_cast<const char*>(encryptedBlob.get().pbData);
+        output.write(data, static_cast<std::streamsize>(encryptedBlob.get().cbData));
+        if (!output) {
+            return secretError("Unable to write the ElevenLabs secret file.");
+        }
+
+        return true;
+    } catch (const std::filesystem::filesystem_error& exception) {
+        return secretError(exception.what());
+    } catch (const std::exception& exception) {
+        return secretError(exception.what());
+    }
+}
+
+core::Expected<std::string> DpapiVault::loadElevenLabsApiKey() const {
+    auto payload = loadSecretPayload(m_secretFilePath);
+    if (!payload) {
+        return payload.error();
+    }
+
+    auto value = std::move(payload).value();
+    if (!value.starts_with(kValidatedPayloadPrefix) ||
+        value.size() <= kValidatedPayloadPrefix.size()) {
+        return secretError(
+            "Saved ElevenLabs API key must be reconnected and validated.");
+    }
+    value.erase(0, kValidatedPayloadPrefix.size());
+    return value;
+}
+
 bool DpapiVault::hasElevenLabsApiKey() const {
-    return !m_secretFilePath.empty() && std::filesystem::exists(m_secretFilePath);
+    auto payload = loadSecretPayload(m_secretFilePath);
+    return payload.hasValue() &&
+           payload.value().starts_with(kValidatedPayloadPrefix) &&
+           payload.value().size() > kValidatedPayloadPrefix.size();
 }
 
 core::Expected<bool> DpapiVault::deleteElevenLabsApiKey() const {
@@ -182,4 +207,3 @@ const std::filesystem::path& DpapiVault::secretFilePath() const noexcept {
 }
 
 } // namespace voxstudio::secrets
-

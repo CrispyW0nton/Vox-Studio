@@ -5,7 +5,9 @@
 #include "db/TakeRepository.h"
 
 #include <filesystem>
+#include <span>
 #include <string>
+#include <vector>
 
 namespace voxstudio::core {
 
@@ -27,25 +29,41 @@ struct SavedTake final {
 
 class TakeManager final {
 public:
-    [[nodiscard]] Expected<SavedTake>
-    saveTtsTake(const std::filesystem::path& projectRoot,
-                const std::string& lineId,
-                const std::string& voiceId,
-                const audio::PcmAudioBuffer& audio,
-                const VoiceSettings& settings) const;
+    [[nodiscard]] Expected<SavedTake> saveTtsTake(const std::filesystem::path& projectRoot,
+                                                  const std::string& lineId,
+                                                  const std::string& voiceId,
+                                                  const audio::PcmAudioBuffer& audio,
+                                                  const VoiceSettings& settings) const;
+
+    [[nodiscard]] Expected<SavedTake> saveStsTake(const std::filesystem::path& projectRoot,
+                                                  const std::string& lineId,
+                                                  const std::string& voiceId,
+                                                  const audio::PcmAudioBuffer& audio,
+                                                  const VoiceSettings& settings) const;
+
+    [[nodiscard]] Expected<SavedTake> saveVoxCpmTake(const std::filesystem::path& projectRoot,
+                                                     const std::string& lineId,
+                                                     const std::string& voiceId,
+                                                     const audio::PcmAudioBuffer& audio) const;
 
     [[nodiscard]] Expected<SavedTake>
-    saveStsTake(const std::filesystem::path& projectRoot,
-                const std::string& lineId,
-                const std::string& voiceId,
-                const audio::PcmAudioBuffer& audio,
-                const VoiceSettings& settings) const;
+    savePerformanceMirrorTake(const std::filesystem::path& projectRoot, const std::string& lineId,
+                              const std::string& voiceId, const audio::PcmAudioBuffer& audio) const;
 
     [[nodiscard]] Expected<SavedTake>
-    saveRvcLocalTake(const std::filesystem::path& projectRoot,
-                     const std::string& lineId,
-                     const std::string& rvcModelId,
-                     const audio::PcmAudioBuffer& audio) const;
+    saveVoxCpmTextTake(const std::filesystem::path& projectRoot, const std::string& lineId,
+                       const std::string& voiceId, const audio::PcmAudioBuffer& audio,
+                       const std::string& delivery, const std::string& performanceMode = {}) const;
+
+    [[nodiscard]] Expected<SavedTake> saveRvcLocalTake(const std::filesystem::path& projectRoot,
+                                                       const std::string& lineId,
+                                                       const std::string& rvcModelId,
+                                                       const audio::PcmAudioBuffer& audio) const;
+
+    [[nodiscard]] Expected<std::vector<std::filesystem::path>>
+    exportTakesAsMp3(const std::filesystem::path& projectRoot,
+                     const std::filesystem::path& destinationFolder,
+                     std::span<const db::TakeRecord> takes) const;
 
 private:
     db::TakeRepository m_repository;

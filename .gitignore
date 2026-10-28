@@ -27,6 +27,10 @@ __pycache__/
 # Voice, model, and signing material must never enter git.
 *.pth
 *.onnx
+*.pt
+*.ckpt
+*.safetensors
+*.index
 *.pfx
 *.pvk
 *.snk
@@ -40,3 +44,10 @@ Thumbs.db
 Desktop.ini
 *.user
 *.suo
+
+.pytest_cache/
+.venv-tests/
+# Private character data is restored separately from the source-only toolkit.
+/tools/character_lab/characters/*.json
+!/tools/character_lab/characters/*.example.json
+/tools/character_lab/**/corpus.jsonl

@@ -20,6 +20,7 @@ TEST_CASE("speech phrase buffer emits after a natural pause", "[audio][phrases]"
         .trailingSilenceBytes = 6,
         .retainedTrailingSilenceBytes = 2,
         .minimumSpeechBytes = 4,
+        .preferredPhraseBytes = 80,
         .maximumPhraseBytes = 100,
     }};
 
@@ -41,6 +42,7 @@ TEST_CASE("speech phrase buffer drops short noise and splits long performances",
         .trailingSilenceBytes = 4,
         .retainedTrailingSilenceBytes = 0,
         .minimumSpeechBytes = 4,
+        .preferredPhraseBytes = 6,
         .maximumPhraseBytes = 8,
     }};
 
@@ -51,4 +53,22 @@ TEST_CASE("speech phrase buffer drops short noise and splits long performances",
     auto phrase = buffer.append(bytes(4, 8), true);
     REQUIRE(phrase.has_value());
     CHECK(phrase->size() == 8);
+}
+
+TEST_CASE("speech phrase buffer waits for a quiet boundary after its preferred length",
+          "[audio][phrases]") {
+    voxstudio::audio::SpeechPhraseBuffer buffer{{
+        .preRollBytes = 0,
+        .trailingSilenceBytes = 10,
+        .retainedTrailingSilenceBytes = 2,
+        .minimumSpeechBytes = 4,
+        .preferredPhraseBytes = 8,
+        .maximumPhraseBytes = 20,
+    }};
+
+    CHECK_FALSE(buffer.append(bytes(8, 3), true).has_value());
+    auto phrase = buffer.append(bytes(2, 0), false);
+
+    REQUIRE(phrase.has_value());
+    CHECK(phrase->size() == 10);
 }

@@ -5,8 +5,8 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
-#include <chrono>
 #include <cctype>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -52,21 +52,19 @@ constexpr auto kManifestFileName = "model.json";
     }
 
     const auto now = std::chrono::system_clock::now().time_since_epoch();
-    const auto millis =
-        std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
+    const auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
     return id + "_" + std::to_string(millis);
 }
 
 [[nodiscard]] bool isSafeModelId(const std::string& modelId) {
-    return !modelId.empty() &&
-           std::ranges::all_of(modelId, [](const char character) {
-               const auto value = static_cast<unsigned char>(character);
-               return std::isalnum(value) || character == '-' || character == '_';
-           });
+    return !modelId.empty() && std::ranges::all_of(modelId, [](const char character) {
+        const auto value = static_cast<unsigned char>(character);
+        return std::isalnum(value) || character == '-' || character == '_';
+    });
 }
 
-[[nodiscard]] core::Expected<RvcModelRecord> recordFromManifest(
-    const std::filesystem::path& manifestPath) {
+[[nodiscard]] core::Expected<RvcModelRecord>
+recordFromManifest(const std::filesystem::path& manifestPath) {
     try {
         std::ifstream input{manifestPath};
         if (!input) {
@@ -80,7 +78,8 @@ constexpr auto kManifestFileName = "model.json";
                               json.value("index_path", std::string{}),
                               json.value("sample_rate", 48000),
                               json.value("notes", std::string{}),
-                              json.value("imported_at", std::string{})};
+                              json.value("imported_at", std::string{}),
+                              json.value("character_voice_id", std::string{})};
     } catch (const std::exception& exception) {
         return registryError(exception.what());
     }
@@ -95,11 +94,11 @@ constexpr auto kManifestFileName = "model.json";
     json["sample_rate"] = record.sampleRate;
     json["notes"] = record.notes;
     json["imported_at"] = record.importedAt;
+    json["character_voice_id"] = record.characterVoiceId;
     return json;
 }
 
-[[nodiscard]] core::Expected<bool> validateImportRequest(
-    const RvcModelImportRequest& request) {
+[[nodiscard]] core::Expected<bool> validateImportRequest(const RvcModelImportRequest& request) {
     if (request.displayName.empty()) {
         return core::makeError(core::ErrorCode::InvalidArgument,
                                "RVC model display name must not be empty.");
@@ -129,8 +128,7 @@ constexpr auto kManifestFileName = "model.json";
 
 } // namespace
 
-RvcModelRegistry::RvcModelRegistry()
-    : RvcModelRegistry(defaultModelRoot()) {}
+RvcModelRegistry::RvcModelRegistry() : RvcModelRegistry(defaultModelRoot()) {}
 
 RvcModelRegistry::RvcModelRegistry(std::filesystem::path modelRoot)
     : m_modelRoot(std::move(modelRoot)) {}
@@ -176,8 +174,8 @@ core::Expected<std::vector<RvcModelRecord>> RvcModelRegistry::listModels() const
     return records;
 }
 
-core::Expected<RvcModelRecord> RvcModelRegistry::importModel(
-    const RvcModelImportRequest& request) const {
+core::Expected<RvcModelRecord>
+RvcModelRegistry::importModel(const RvcModelImportRequest& request) const {
     auto valid = validateImportRequest(request);
     if (!valid) {
         return valid.error();
@@ -196,18 +194,14 @@ core::Expected<RvcModelRecord> RvcModelRegistry::importModel(
         return registryError(error.message());
     }
 
-    std::filesystem::copy_file(request.pthPath,
-                               targetPth,
-                               std::filesystem::copy_options::overwrite_existing,
-                               error);
+    std::filesystem::copy_file(request.pthPath, targetPth,
+                               std::filesystem::copy_options::overwrite_existing, error);
     if (error) {
         return registryError(error.message());
     }
     if (!request.indexPath.empty()) {
-        std::filesystem::copy_file(request.indexPath,
-                                   targetIndex,
-                                   std::filesystem::copy_options::overwrite_existing,
-                                   error);
+        std::filesystem::copy_file(request.indexPath, targetIndex,
+                                   std::filesystem::copy_options::overwrite_existing, error);
         if (error) {
             return registryError(error.message());
         }
@@ -219,7 +213,8 @@ core::Expected<RvcModelRecord> RvcModelRegistry::importModel(
                                 targetIndex,
                                 request.sampleRate,
                                 request.notes,
-                                utcTimestampNow()};
+                                utcTimestampNow(),
+                                request.characterVoiceId};
     try {
         std::ofstream output{modelDirectoryPath / kManifestFileName, std::ios::trunc};
         output << manifestFromRecord(record).dump(2);
@@ -248,8 +243,8 @@ core::Expected<bool> RvcModelRegistry::deleteModel(const std::string& modelId) c
     return true;
 }
 
-core::Expected<std::filesystem::path> RvcModelRegistry::modelDirectory(
-    const std::string& modelId) const {
+core::Expected<std::filesystem::path>
+RvcModelRegistry::modelDirectory(const std::string& modelId) const {
     if (!isSafeModelId(modelId)) {
         return core::makeError(core::ErrorCode::InvalidArgument, "RVC model id is invalid.");
     }

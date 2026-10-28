@@ -9,6 +9,8 @@
 #include <QString>
 
 #include <memory>
+#include <functional>
+#include <optional>
 #include <string>
 
 class QDialogButtonBox;
@@ -28,13 +30,22 @@ struct ConnectionTestResult final {
     int modelCount{0};
 };
 
+using ConnectionTestOutcome =
+    core::Expected<ConnectionTestResult, net::elevenlabs::ApiError>;
+using ConnectionTester = std::function<ConnectionTestOutcome(std::string)>;
+
 class SettingsDialog final : public QDialog {
     Q_OBJECT
 
 public:
     explicit SettingsDialog(QWidget* parent = nullptr);
+    SettingsDialog(secrets::DpapiVault vault, QWidget* parent = nullptr);
+    SettingsDialog(secrets::DpapiVault vault,
+                   ConnectionTester connectionTester,
+                   QWidget* parent = nullptr);
 
     void setIntroMessage(const QString& message);
+    void requireApiKeyBeforeUse();
 
 signals:
     void apiKeySaved();
@@ -42,6 +53,7 @@ signals:
 private:
     void saveApiKey();
     void testConnection();
+    void startConnectionTest(std::string apiKey);
     void finishConnectionTest();
     void saveRvcEngineMode();
     void refreshRvcDiagnostics();
@@ -50,6 +62,7 @@ private:
     void setStatusText(const QString& text);
 
     secrets::DpapiVault m_vault;
+    ConnectionTester m_connectionTester;
     QLineEdit* m_apiKeyEdit{nullptr};
     QLabel* m_introLabel{nullptr};
     QLabel* m_statusLabel{nullptr};
@@ -57,10 +70,12 @@ private:
     QComboBox* m_rvcEngineCombo{nullptr};
     QPushButton* m_testButton{nullptr};
     QPushButton* m_saveButton{nullptr};
+    QPushButton* m_closeButton{nullptr};
     QPushButton* m_rvcRefreshButton{nullptr};
     QPushButton* m_rvcModelButton{nullptr};
-    std::unique_ptr<QFutureWatcher<core::Expected<ConnectionTestResult, net::elevenlabs::ApiError>>>
-        m_connectionWatcher;
+    bool m_apiKeyRequired{false};
+    std::optional<std::string> m_pendingApiKey;
+    std::unique_ptr<QFutureWatcher<ConnectionTestOutcome>> m_connectionWatcher;
 };
 
 } // namespace voxstudio::ui

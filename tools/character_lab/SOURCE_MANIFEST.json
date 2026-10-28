@@ -1,0 +1,386 @@
+{
+  "schemaVersion": 1,
+  "captured": "2026-10-26",
+  "purpose": "Source-only recovery snapshot; no voices, trained weights, transcripts or private recipes",
+  "layout": "Paths relative to voice-lab root; preserve baodur-lab and characters as siblings",
+  "files": [
+    {
+      "path": "baodur-lab/build_corpus.py",
+      "bytes": 6113,
+      "sha256": "e7af8e189c44cfe263f4b947d9ba8216bb0dd07d611fcd2ad910cbdebc28827f",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/delivery/analyze.py",
+      "bytes": 31150,
+      "sha256": "63646b2f5e310dcac9a14e124f08d63845258c8445fd9dee105bae04e30d17f7",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/delivery/bible_facts.py",
+      "bytes": 16315,
+      "sha256": "a3cabd31df179e4e2036093357f4941ac78e7d750d6de4a9f2530bd250292f9b",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/delivery/build_delivery_map.py",
+      "bytes": 50928,
+      "sha256": "4ecf867c6e451e9e3fe8e51d7348e4df7de45edd8c8419cc2818fdc76fd02874",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/delivery/exclusions.py",
+      "bytes": 6400,
+      "sha256": "3a384b663d9ccdb69288f288a8ba035dbbe5bc7a1ab22d832a3fe5f5dac174f9",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/delivery/labcfg.py",
+      "bytes": 5245,
+      "sha256": "d7ae4cc52beb26656709a7663aa612bf298ed71cb16f57336dd47a78ca6c8965",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/delivery/make_bible.py",
+      "bytes": 29145,
+      "sha256": "3fe2ec1289d39f2cddfeaa6f9861cd799b0f3a76efe4e7b76a7f436b7d635b14",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/delivery/make_takes_script.py",
+      "bytes": 4235,
+      "sha256": "dae72ed5f403fed8c365d952cada31bbdf88e00683313a69cc5e404701accaa9",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/delivery/probe_voxcpm.py",
+      "bytes": 24689,
+      "sha256": "4ddf3d5ff35ceff5cc6a1ec7c45bd091fc1a6ebcd2967c202f53794d4e3e81b2",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/delivery/resources.py",
+      "bytes": 5540,
+      "sha256": "c231a13400d90b8765a8ad62332222c17fd9ddcecb59f819774bb76dac8e8847",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/delivery/score_delivery.py",
+      "bytes": 51579,
+      "sha256": "ec367f4e4822ea392f9d95f59ecafa2b186d2e386a8e782283a8d9984becb3de",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/delivery/speaker_check.py",
+      "bytes": 11942,
+      "sha256": "a1f1a89d473dfe4fe66d9de23b48082820356e45785d26facd5ad05ccee3c0de",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/delivery/validate.py",
+      "bytes": 19514,
+      "sha256": "762f426f294c9e83eca16da7ea56b4a12134798163fffe11d811a17a7295bd12",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/eval/aggregate.py",
+      "bytes": 120578,
+      "sha256": "d66bab403c622028d6c3b8ec9f844fecfdaf2f7537dc55c632ece8bcac0ed7b0",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/eval/evalchar.py",
+      "bytes": 7360,
+      "sha256": "a42ecb74b558559d25d18ad0a806d218ba229f57c2a6af67f77d27e94829de5a",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/eval/evalcommon.py",
+      "bytes": 48744,
+      "sha256": "2ed3f992764ded1ae3b52a179b3d646fac7e287dda28c0355479f698f2cd4147",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/eval/make_selftest.py",
+      "bytes": 31222,
+      "sha256": "114437301f23e1e29475b0a5c330ca61c26e75ded899f066ce505e41c5204cb5",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/eval/metric_artifacts.py",
+      "bytes": 11381,
+      "sha256": "3b0a029eb5b5a5b7d5c6ae81957511e6d060ee5bc9bb3f5f7cdf37619a3dd32b",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/eval/metric_asr.py",
+      "bytes": 11452,
+      "sha256": "2dcb872b31579bb68bafe240e785c4d6839a0526ae43a3ca09d39c1151756906",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/eval/metric_dnsmos.py",
+      "bytes": 6616,
+      "sha256": "64f424b3342cd32c817a60bfb2ca76d6f4a8e08043c8b9594b9511c5ce8cb1ea",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/eval/metric_emotion.py",
+      "bytes": 19102,
+      "sha256": "436d6a45d2980ab2e00a0af1eb0c2ef7fe0ce71e01d48412ac17d96b56a8a89f",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/eval/metric_prosody.py",
+      "bytes": 11721,
+      "sha256": "d7ee15952098bc9e95a8e9248c25b099531d3c6b30d8ae9f73fc184a9984ff03",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/eval/metric_sv_eres2net.py",
+      "bytes": 3857,
+      "sha256": "4297139cd376ce77748ab699ce5e2609a5f283039dad623301ba665f4e9ff163",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/eval/metric_sv_resemblyzer.py",
+      "bytes": 5244,
+      "sha256": "a35ef463601b1229a47bca5c113bd2ef571cff0a8446fc073eb070c9a4b9ab21",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/eval/metric_sv_wavlm.py",
+      "bytes": 3832,
+      "sha256": "a89c58057114946bcdc8dc6e3a19c68c42ceef0f7bd14859ee217ab388fc39eb",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/eval/metric_utmos.py",
+      "bytes": 12569,
+      "sha256": "9d7bd5bdaca3312dbd6e7d79a7d8f1af6cee1aaa3c0c8f3c1af29340a935c134",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/eval/provenance.py",
+      "bytes": 14442,
+      "sha256": "1a53a1be7e191b290184cf7025352185dcf16fcd1a97b3673ff225f0e4166435",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/eval/run_eval.py",
+      "bytes": 40245,
+      "sha256": "3466e75cdf8dfd42b2686284c0f688a349c8930457386f30b27d7687aa669dfa",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/gsv/export_dataset.py",
+      "bytes": 13751,
+      "sha256": "17a83835b33fa766a2c57bdefae3c1de6446c71e3cbe7af690c62ad81f3d71b0",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/gsv/freeze_selection.py",
+      "bytes": 4832,
+      "sha256": "0eb473f5d8e1ce52ae22b740c64655508583f55dba750e3d8f5a5760562e6122",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/gsv/g2p_audit.py",
+      "bytes": 5983,
+      "sha256": "69aba6bd5bc44848cb374028fdc6115e9e7275414373a53d896aa5becdb02e38",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/gsv/gsv_common.py",
+      "bytes": 45787,
+      "sha256": "45dc19dcb520752ae09cb227f0a787babef6a8fdded2637c3ee27bf452c68989",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/gsv/gsv_run_step.py",
+      "bytes": 3113,
+      "sha256": "c6cb03fb2a4f6b60a7d3f881f1ee0c60704471e8c1aaf435eb97588296df9922",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/gsv/gsv_s1_train.py",
+      "bytes": 4153,
+      "sha256": "aa72795e60895716ca9ffafc3f9132291555e7a3c7a01b5a9037f80bc5897d79",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/gsv/gsv_s2_train.py",
+      "bytes": 6614,
+      "sha256": "86934972ccfb08c5d27793f2c3f1841589c6f6c0ba401931cff4814ba427c6e9",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/gsv/infer.py",
+      "bytes": 50659,
+      "sha256": "4ce67b6a26e311637d4a207c2b6f8be71287c237516f9721492f72779a8da433",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/gsv/prepare.py",
+      "bytes": 18394,
+      "sha256": "b646d44706995d7b3db4d8f6c6281af0de87ec3906e3a6f8bdc5acdfcd957e04",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/gsv/text_check.py",
+      "bytes": 5553,
+      "sha256": "79172c7f9b6f9771051256f8864447a1e6d8eaa8c9e167586db6a73ce833a400",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/gsv/train.py",
+      "bytes": 30467,
+      "sha256": "77912c94d812ee155e51972b5450af07c7dcea04f5ba19905de0c634e0bc4c39",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/indextts/common.py",
+      "bytes": 39377,
+      "sha256": "200c3c2160badce568a2c309e1ba2d510d48a57c03d420ea0bd3469e8b8fcaf2",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/indextts/render.py",
+      "bytes": 43829,
+      "sha256": "56f930ac4ecf8a8d84b29287c372c7c7cb846505fbab4519018b3368c135ce87",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/indextts/smoke_cpu.py",
+      "bytes": 28838,
+      "sha256": "20e4406533a7187b90e9f2cd79894e6aa5991224a46ca7cd1f1140888f3621c8",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/restore.py",
+      "bytes": 2817,
+      "sha256": "cf417535eb006dac2ee21816624b55232bc28fa7a36c660d50f7f29dee940ef2",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/seedvc/asr_helper.py",
+      "bytes": 6067,
+      "sha256": "f5c46ee4d4184f90a4b31b2c2a7ba4729025670169be80b7dce7fc4953a68883",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/seedvc/check_offline.py",
+      "bytes": 8834,
+      "sha256": "42e214495c2d7644ab3d42548e2ca6d3d720c1a458072ca637cf50922341adcb",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/seedvc/common.py",
+      "bytes": 34285,
+      "sha256": "318c5d7d7ef534155d36f8f87d6be095b93d65a497121a538bb7292428abb525",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/seedvc/convert.py",
+      "bytes": 37745,
+      "sha256": "227c22ddab5f98e2e1a5aa2ef6574ec6b4d242f46a17adbc5a738fdc4555c4cf",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/seedvc/pairs.py",
+      "bytes": 6825,
+      "sha256": "9279b19baff0aa9e9983acb6af4c25d12454eb38693e9f3b1de5fa0999d8eba9",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/seedvc/prepare.py",
+      "bytes": 18434,
+      "sha256": "10048d7cbd31ea6d40b59d6d736b35c2b7c53d862264816f42c4b0c46797eb07",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/seedvc/selftest.py",
+      "bytes": 55637,
+      "sha256": "b08c75d857d64e155e3de389838dd8acbb8b2be079b1e48e9432ef85749060dd",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/seedvc/svc_core.py",
+      "bytes": 8270,
+      "sha256": "bd96bca41b510288521bf0d8d3f09d934352f3d2bc25f3fdbb1f9d43739902ac",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/seedvc/train.py",
+      "bytes": 38234,
+      "sha256": "deb6c4e77c410c6b9b7b309f84622eff0e55c00d706a18781d2ebf1f6294c9af",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/voxcpm/build_ab_spec.py",
+      "bytes": 5126,
+      "sha256": "273c7b8e84da17060793698064d9a9f303a9ec187f9aee5118f1ed6070b8433e",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/voxcpm/build_manifest.py",
+      "bytes": 40492,
+      "sha256": "517ba7cb37e6d60c3dd13b6cf64725a8fee9d3f61bd02bd94ac0f4738bb1b248",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/voxcpm/check_config.py",
+      "bytes": 33783,
+      "sha256": "469d7495e7089f931bbfd5f4a6c26d2c28ea302bed65241dbdf8547d1a09e464",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/voxcpm/common.py",
+      "bytes": 39449,
+      "sha256": "50a5bea56288b8ca81c67ae31970f9f09ac41fe75c0970e3e7c72470dbbc23b8",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/voxcpm/make_ab_pack.py",
+      "bytes": 9979,
+      "sha256": "7951da32ed3f108fdc89ea10b366ccc404de133c0efe6c3d8d7853f7875946ae",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/voxcpm/render.py",
+      "bytes": 55780,
+      "sha256": "989459b25432eca34e4e011df8ecc0f7e492ea0b649b50e88c52c8a95a0bd51d",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/voxcpm/render_lowmem.py",
+      "bytes": 8695,
+      "sha256": "e17c066925a1d37f892e02c601cc92fbdaa856674447a0298e31990acf9e4779",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/voxcpm/select_checkpoint.py",
+      "bytes": 26676,
+      "sha256": "af5ba36790c8b842ae9b769c3501545fa68bc2db03d63f1f37182c996188b2e1",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/voxcpm/sweep_report.py",
+      "bytes": 8230,
+      "sha256": "c222393fbb7dad0c815955ba062cc959b3750f86252dace6c379b7126d1b1462",
+      "syntax": true
+    },
+    {
+      "path": "baodur-lab/voxcpm/train_lora_v2.py",
+      "bytes": 39028,
+      "sha256": "4aa215347ecca1726610d48c1b493e252a19608ecae0017b37826a64b4d8f61c",
+      "syntax": true
+    },
+    {
+      "path": "characters/character.py",
+      "bytes": 1182,
+      "sha256": "1fb43a807f894e9fd25661320c0cc002b305bda6c8681d2922c8b347043ce6b4",
+      "syntax": true
+    }
+  ]
+}

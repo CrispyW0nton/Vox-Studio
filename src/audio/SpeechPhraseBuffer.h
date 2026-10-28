@@ -13,7 +13,8 @@ struct SpeechPhraseBufferConfig final {
     std::size_t trailingSilenceBytes{9600};
     std::size_t retainedTrailingSilenceBytes{3200};
     std::size_t minimumSpeechBytes{2560};
-    std::size_t maximumPhraseBytes{192000};
+    std::size_t preferredPhraseBytes{384000};
+    std::size_t maximumPhraseBytes{960000};
 };
 
 class SpeechPhraseBuffer final {

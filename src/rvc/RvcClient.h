@@ -50,6 +50,10 @@ public:
     [[nodiscard]] virtual core::Expected<RvcHttpResponse> getJson(
         const std::string& path) const = 0;
 
+    [[nodiscard]] virtual core::Expected<RvcHttpResponse> postJson(
+        const std::string& path,
+        const std::string& body) const = 0;
+
     [[nodiscard]] virtual core::Expected<RvcHttpResponse> postPcmStream(
         const std::string& path,
         const RvcConvertRequest& request,
@@ -62,6 +66,10 @@ public:
 
     [[nodiscard]] core::Expected<RvcHttpResponse> getJson(
         const std::string& path) const override;
+
+    [[nodiscard]] core::Expected<RvcHttpResponse> postJson(
+        const std::string& path,
+        const std::string& body) const override;
 
     [[nodiscard]] core::Expected<RvcHttpResponse> postPcmStream(
         const std::string& path,
@@ -78,6 +86,9 @@ public:
     RvcClient(std::string endpoint, std::unique_ptr<IRvcHttpTransport> transport);
 
     [[nodiscard]] core::Expected<RvcHealth> health() const;
+    [[nodiscard]] core::Expected<RvcHealth> loadModel(
+        const std::string& modelId,
+        int pitchShiftSemitones = 0) const;
     [[nodiscard]] core::Expected<RvcConvertResult> convertChunk(
         const RvcConvertRequest& request,
         const RvcAudioChunkCallback& onChunk) const;
@@ -88,6 +99,7 @@ private:
 };
 
 [[nodiscard]] std::string rvcHealthPath();
+[[nodiscard]] std::string rvcLoadModelPath();
 [[nodiscard]] std::string rvcConvertChunkPath();
 
 } // namespace voxstudio::rvc

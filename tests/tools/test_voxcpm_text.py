@@ -1,0 +1,338 @@
+from __future__ import annotations
+
+import sys
+import unittest
+from pathlib import Path
+
+
+SIDECAR_ROOT = Path(__file__).resolve().parents[2] / "third_party" / "voxcpm_sidecar"
+sys.path.insert(0, str(SIDECAR_ROOT))
+
+from vox_text import (  # noqa: E402
+    STORYTELLING_MODE,
+    delivery_instruction,
+    normalized_delivery_tag,
+    parse_performance_script,
+    plan_story_performance,
+    split_text_for_synthesis,
+    story_beat_instruction,
+    supported_delivery_tags,
+    synthesis_seed,
+    vocal_action_instruction,
+)
+
+ATTON_STORY = (
+    "So there I was, sitting in a smoke-filled spacer dive on Nar Shaddaa, "
+    "trying to win enough credits for a bowl of actual warm food, when a "
+    "loudmouth Rodian decided he was going to teach me a lesson in math. "
+    "He kept hitting me with side-bets and smug little clicks of his mandible "
+    "every time he drew a plus-two, thinking I was just another broke smuggler "
+    "sweating over a twenty-side deck. I told him, nice and easy, that pazaak "
+    "is all about knowing when to fold your hand and when to let the cards "
+    "speak for themselves-mostly because my own deck was heavily modified "
+    "with a few choice +/- cards I lifted off a gullible protocol droid on "
+    "Onderon. Well, the green guy flips a natural twenty, slams his greasy "
+    "claws on the table, and calls me a cheap Sabacc cheat who doesn't even "
+    "know the rules of a real spacer's game. I just smiled, tapped my side-deck, "
+    "and told him the house always wins-except when the house is carrying a "
+    "heavily customized dual-ion blaster under the table. He reached for his "
+    "sidearm, I cleared leather faster than a Republic cruiser jumping to "
+    "lightspeed, and the whole cantina erupted into a lovely, glowing mess of "
+    "blaster bolts, shattered glass, and screaming gamorreans before I even "
+    "finished my drink."
+)
+
+
+class DeliveryTagTests(unittest.TestCase):
+    def test_supports_full_requested_emotional_spectrum(self) -> None:
+        tags = supported_delivery_tags()
+
+        self.assertIn("natural", tags)
+        self.assertIn("reflective", tags)
+        self.assertIn("wry", tags)
+        self.assertIn("wounded", tags)
+        self.assertIn("sarcastic", tags)
+
+    def test_unknown_delivery_falls_back_to_natural(self) -> None:
+        self.assertEqual(normalized_delivery_tag("not-a-tag"), "natural")
+        self.assertIn("Natural", delivery_instruction("not-a-tag"))
+
+
+class TextSegmentationTests(unittest.TestCase):
+    def test_packs_complete_sentences_into_bounded_sections(self) -> None:
+        sections = split_text_for_synthesis(
+            "The first sentence is calm. The second sentence asks a question? "
+            "The final sentence resolves the thought.",
+            maximum_characters=50,
+        )
+
+        self.assertEqual(
+            sections,
+            (
+                "The first sentence is calm.",
+                "The second sentence asks a question?",
+                "The final sentence resolves the thought.",
+            ),
+        )
+
+    def test_splits_a_long_sentence_without_losing_words(self) -> None:
+        text = (
+            "This deliberately long sentence keeps moving through several ideas, "
+            "while preserving every written word for exact local synthesis."
+        )
+
+        sections = split_text_for_synthesis(text, maximum_characters=60)
+
+        self.assertGreater(len(sections), 1)
+        self.assertEqual(" ".join(sections), text)
+        self.assertTrue(all(len(section) <= 60 for section in sections))
+
+
+class PerformanceCueTests(unittest.TestCase):
+    def test_extracts_vocal_action_without_speaking_its_label(self) -> None:
+        segments = parse_performance_script(
+            "I thought I was ready. *sighs deeply* Let's try again."
+        )
+
+        self.assertEqual(len(segments), 3)
+        self.assertEqual(segments[0].text, "I thought I was ready.")
+        self.assertIsNotNone(segments[1].action)
+        self.assertEqual(segments[1].action.name, "sigh")
+        self.assertNotIn("sigh", segments[1].action.synthesis_text.casefold())
+        self.assertEqual(segments[2].text, "Let's try again.")
+
+    def test_accepts_double_asterisks_and_maps_dies_to_death_gasp(self) -> None:
+        segments = parse_performance_script("Not like this. ** dies **")
+
+        self.assertEqual(len(segments), 2)
+        self.assertEqual(segments[1].action.name, "death")
+        self.assertEqual(segments[1].action.display, "Death gasp")
+        self.assertGreaterEqual(segments[1].action.pause_after, 0.4)
+
+    def test_accepts_markdown_escaped_stage_directions(self) -> None:
+        segments = parse_performance_script(r"I understand. \*sighs\*")
+
+        self.assertEqual(len(segments), 2)
+        self.assertEqual(segments[1].action.name, "sigh")
+        self.assertNotIn("\\", " ".join(segment.text for segment in segments))
+
+    def test_accepts_escaped_double_asterisk_chuckle_before_dialogue(self) -> None:
+        segments = parse_performance_script(
+            r"**chuckles\** It's just like that time on Corellia, isn't it?"
+        )
+
+        self.assertEqual(len(segments), 2)
+        self.assertEqual(segments[0].action.name, "chuckle")
+        self.assertEqual(
+            segments[1].text,
+            "It's just like that time on Corellia, isn't it?",
+        )
+
+    def test_markdown_emphasis_remains_spoken_text(self) -> None:
+        segments = parse_performance_script("This is *very* important.")
+
+        self.assertEqual(len(segments), 1)
+        self.assertEqual(segments[0].text, "This is very important.")
+        self.assertIsNone(segments[0].action)
+
+    def test_vocal_action_instruction_forbids_labels_and_repetition(self) -> None:
+        action = parse_performance_script("*laughs*")[0].action
+
+        instruction = vocal_action_instruction(action)
+
+        self.assertIn("only this vocal action once", instruction)
+        self.assertIn("Do not say its label", instruction)
+        self.assertIn("character", instruction)
+
+    def test_recognizes_effort_and_pain_reactions(self) -> None:
+        segments = parse_performance_script(
+            "Lift it. *strained effort* Now move. *cries out in pain*"
+        )
+
+        self.assertEqual(segments[1].action.name, "effort")
+        self.assertEqual(segments[3].action.name, "pain")
+
+    def test_recognizes_gerund_pain_reaction_without_speaking_label(self) -> None:
+        segments = parse_performance_script("Stop. *crying out in pain*")
+
+        self.assertEqual(
+            [segment.action.name for segment in segments if segment.action],
+            ["pain"],
+        )
+        spoken = " ".join(
+            segment.text for segment in segments if segment.action is None
+        )
+        self.assertNotIn("crying out in pain", spoken)
+
+
+class StoryPerformanceTests(unittest.TestCase):
+    def test_atton_story_beats_preserve_every_word_and_build_an_arc(self) -> None:
+        plan = plan_story_performance(ATTON_STORY, "natural")
+
+        self.assertEqual(plan.mode, STORYTELLING_MODE)
+        self.assertGreaterEqual(len(plan.beats), 6)
+        self.assertLessEqual(len(plan.beats), 14)
+        self.assertEqual(" ".join(beat.text for beat in plan.beats), ATTON_STORY)
+        self.assertEqual(plan.beats[0].role, "hook")
+        self.assertEqual(plan.beats[-1].role, "payoff")
+        self.assertIn("escalation", {beat.role for beat in plan.beats})
+        self.assertIn("natural", {beat.delivery for beat in plan.beats})
+        self.assertIn("wry", {beat.delivery for beat in plan.beats})
+        self.assertTrue(plan.beats[-1].text.endswith("before I even finished my drink."))
+        self.assertFalse(any(beat.text.endswith("mostly") for beat in plan.beats))
+        self.assertEqual(
+            next(beat.text for beat in plan.beats if "lightspeed" in beat.text),
+            (
+                "He reached for his sidearm, I cleared leather faster than a "
+                "Republic cruiser jumping to lightspeed, and the whole cantina "
+                "erupted into a lovely, glowing mess of blaster bolts, shattered "
+                "glass, and screaming gamorreans before I even finished my drink."
+            ),
+        )
+        self.assertIn("and screaming gamorreans", plan.beats[-1].text)
+        self.assertIn("ease into the final understated clause", plan.beats[-1].direction)
+        house_reveal = next(
+            beat for beat in plan.beats if "house always wins" in beat.text
+        )
+        self.assertEqual(house_reveal.role, "turn")
+        self.assertEqual(house_reveal.delivery, "wry")
+        cards_thought = next(
+            beat for beat in plan.beats if "when to fold your hand" in beat.text
+        )
+        self.assertIn("and when to let the cards speak for themselves", cards_thought.text)
+        self.assertTrue(cards_thought.text.endswith("Onderon."))
+
+    def test_story_plan_directs_intent_emphasis_and_thought_change(self) -> None:
+        plan = plan_story_performance(ATTON_STORY, "wry")
+
+        self.assertTrue(all(beat.direction for beat in plan.beats))
+        self.assertTrue(all(beat.emphasis for beat in plan.beats))
+        self.assertTrue(all(0.08 <= beat.pause_after <= 0.30 for beat in plan.beats))
+        self.assertIn("one listener", plan.summary)
+        self.assertIn("land", plan.beats[-1].direction.casefold())
+        self.assertIn("unhurried", plan.beats[0].direction.casefold())
+        self.assertNotEqual(plan.beats[0].direction, plan.beats[-1].direction)
+        self.assertGreater(len({beat.pause_after for beat in plan.beats}), 2)
+        continuing_instruction = story_beat_instruction(plan.beats[1], "wry")
+        self.assertIn("continuous conversation", continuing_instruction)
+        self.assertIn("do not pause at every comma", continuing_instruction)
+        self.assertIn("repeated cadence", continuing_instruction)
+        self.assertNotIn("145 and 165", continuing_instruction)
+
+    def test_story_sections_use_distinct_reproducible_seeds(self) -> None:
+        seeds = [
+            synthesis_seed(index, beat.text)
+            for index, beat in enumerate(plan_story_performance(ATTON_STORY).beats)
+        ]
+
+        self.assertEqual(len(seeds), len(set(seeds)))
+        self.assertEqual(seeds, [
+            synthesis_seed(index, beat.text)
+            for index, beat in enumerate(plan_story_performance(ATTON_STORY).beats)
+        ])
+
+    def test_short_story_remains_a_single_complete_beat(self) -> None:
+        text = "I found the map, and now we know where to go."
+
+        plan = plan_story_performance(text, "reflective")
+
+        self.assertEqual(len(plan.beats), 1)
+        self.assertEqual(plan.beats[0].text, text)
+        self.assertEqual(plan.beats[0].role, "resolution")
+        self.assertEqual(plan.beats[0].delivery, "reflective")
+
+    def test_reflective_story_does_not_invent_an_action_climax(self) -> None:
+        text = (
+            "I remember the first winter in that little house. "
+            "Morning light gathered on the old wooden floor. "
+            "My mother would hum while the kettle warmed. "
+            "We rarely spoke because the quiet already felt complete. "
+            "Years later I returned and found the rooms empty. "
+            "Even so, the light through the window felt like a welcome."
+        )
+
+        plan = plan_story_performance(text, "reflective")
+
+        self.assertNotIn("climax", {beat.role for beat in plan.beats})
+        self.assertNotIn("urgent", {beat.delivery for beat in plan.beats})
+        self.assertEqual(plan.beats[-1].role, "resolution")
+        self.assertEqual(plan.beats[-1].delivery, "reflective")
+        self.assertTrue(all(beat.text for beat in plan.beats))
+        self.assertEqual(" ".join(beat.text for beat in plan.beats), text)
+
+    def test_wounded_ending_keeps_its_emotional_truth(self) -> None:
+        text = (
+            "I waited beside the road until the lanterns went dark. "
+            "He had promised to return before winter. "
+            "By morning I understood that the promise had died with him."
+        )
+
+        plan = plan_story_performance(text, "wounded")
+
+        self.assertEqual(plan.beats[-1].role, "resolution")
+        self.assertEqual(plan.beats[-1].delivery, "wounded")
+        self.assertNotIn("wry", {beat.delivery for beat in plan.beats})
+
+    def test_poignant_smile_does_not_turn_grief_into_a_punchline(self) -> None:
+        text = (
+            "She held the old photograph against the window. "
+            "For one quiet moment she smiled at the life they had shared."
+        )
+
+        plan = plan_story_performance(text, "wounded")
+
+        self.assertEqual(plan.beats[-1].role, "resolution")
+        self.assertEqual(plan.beats[-1].delivery, "wounded")
+
+    def test_punctuation_poor_story_preserves_words_and_builds_manageable_beats(
+        self,
+    ) -> None:
+        text = (
+            "we crossed the ridge before sunrise and followed the river through "
+            "the valley while the fog lifted around us and every familiar tree "
+            "looked strange in the pale light but nobody wanted to turn back "
+            "because the village was finally visible beyond the last hill"
+        )
+
+        plan = plan_story_performance(text, "natural")
+
+        self.assertGreaterEqual(len(plan.beats), 2)
+        self.assertLessEqual(len(plan.beats), 6)
+        self.assertTrue(all(beat.text for beat in plan.beats))
+        self.assertEqual(" ".join(beat.text for beat in plan.beats), text)
+
+    def test_oversized_token_is_never_cut_or_rewritten(self) -> None:
+        token = "https://example.test/" + ("a" * 240)
+        text = f"I found this address {token} and wrote it down."
+
+        plan = plan_story_performance(text, "natural")
+
+        self.assertIn(token, {word for beat in plan.beats for word in beat.text.split()})
+        self.assertEqual(" ".join(beat.text for beat in plan.beats), text)
+
+    def test_story_plan_preserves_vocal_action_as_its_own_beat(self) -> None:
+        plan = plan_story_performance(
+            "I never expected to see this place again. *sighs* We should go.",
+            "reflective",
+        )
+
+        action_beats = [beat for beat in plan.beats if beat.action]
+        speech_beats = [beat for beat in plan.beats if not beat.action]
+        self.assertEqual(len(action_beats), 1)
+        self.assertEqual(action_beats[0].role, "action")
+        self.assertEqual(action_beats[0].action, "sigh")
+        self.assertEqual(action_beats[0].text, "*Sighs*")
+        self.assertEqual(action_beats[0].action_cue, "sighs")
+        self.assertNotIn("*", " ".join(beat.text for beat in speech_beats))
+        self.assertIn("including 1 vocal action", plan.summary)
+
+    def test_story_plan_preserves_action_delivery_modifiers(self) -> None:
+        plan = plan_story_performance("Wait. *quiet pained laugh*", "natural")
+
+        action_beat = next(beat for beat in plan.beats if beat.action)
+        self.assertEqual(action_beat.text, "*Laughs*")
+        self.assertEqual(action_beat.action_cue, "quiet pained laugh")
+
+
+if __name__ == "__main__":
+    unittest.main()

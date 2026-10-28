@@ -13,14 +13,17 @@ class QAction;
 class QLabel;
 class QModelIndex;
 class QTabWidget;
+class QCloseEvent;
 
 namespace voxstudio::ui {
 
 class ProjectHud;
 class LiveMicPanel;
 class ScriptViewerPanel;
+class TextToSpeechPanel;
 class TimelinePanel;
 class VoiceLibraryPanel;
+class VoiceLabPanel;
 
 class MainWindow final : public QMainWindow {
     Q_OBJECT
@@ -28,6 +31,9 @@ class MainWindow final : public QMainWindow {
 public:
     explicit MainWindow(QWidget* parent = nullptr);
     ~MainWindow() override;
+
+protected:
+    void closeEvent(QCloseEvent* event) override;
 
 private:
     void createMenus();
@@ -54,8 +60,10 @@ private:
     ProjectHud* m_projectHud{nullptr};
     LiveMicPanel* m_liveMicPanel{nullptr};
     ScriptViewerPanel* m_scriptViewerPanel{nullptr};
+    TextToSpeechPanel* m_textToSpeechPanel{nullptr};
     TimelinePanel* m_timelinePanel{nullptr};
     VoiceLibraryPanel* m_voiceLibraryPanel{nullptr};
+    VoiceLabPanel* m_voiceLabPanel{nullptr};
     QLabel* m_workspaceLabel{nullptr};
     QTabWidget* m_workspaceTabs{nullptr};
     QAction* m_saveAction{nullptr};

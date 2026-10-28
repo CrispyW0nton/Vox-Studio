@@ -16,6 +16,7 @@ struct RvcModelRecord final {
     int sampleRate{48000};
     std::string notes;
     std::string importedAt;
+    std::string characterVoiceId;
 };
 
 struct RvcModelImportRequest final {
@@ -24,6 +25,7 @@ struct RvcModelImportRequest final {
     std::filesystem::path indexPath;
     int sampleRate{48000};
     std::string notes;
+    std::string characterVoiceId;
 };
 
 class RvcModelRegistry final {
@@ -35,11 +37,11 @@ public:
 
     [[nodiscard]] const std::filesystem::path& modelRoot() const noexcept;
     [[nodiscard]] core::Expected<std::vector<RvcModelRecord>> listModels() const;
-    [[nodiscard]] core::Expected<RvcModelRecord> importModel(
-        const RvcModelImportRequest& request) const;
+    [[nodiscard]] core::Expected<RvcModelRecord>
+    importModel(const RvcModelImportRequest& request) const;
     [[nodiscard]] core::Expected<bool> deleteModel(const std::string& modelId) const;
-    [[nodiscard]] core::Expected<std::filesystem::path> modelDirectory(
-        const std::string& modelId) const;
+    [[nodiscard]] core::Expected<std::filesystem::path>
+    modelDirectory(const std::string& modelId) const;
 
 private:
     std::filesystem::path m_modelRoot;

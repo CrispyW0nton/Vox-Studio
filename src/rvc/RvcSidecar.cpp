@@ -8,6 +8,8 @@
 #include <array>
 #include <chrono>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <system_error>
 #include <utility>
@@ -34,6 +36,18 @@ constexpr auto kManifestFileName = "sidecar_manifest.json";
 [[nodiscard]] bool isCopyableSidecarFile(const std::filesystem::path& path) {
     const auto fileName = path.filename().wstring();
     return fileName != L".gitkeep";
+}
+
+[[nodiscard]] bool filesMatch(const std::filesystem::path& first,
+                              const std::filesystem::path& second) {
+    std::ifstream firstStream{first, std::ios::binary};
+    std::ifstream secondStream{second, std::ios::binary};
+    if (!firstStream || !secondStream) {
+        return false;
+    }
+    return std::equal(std::istreambuf_iterator<char>{firstStream}, std::istreambuf_iterator<char>{},
+                      std::istreambuf_iterator<char>{secondStream},
+                      std::istreambuf_iterator<char>{});
 }
 
 [[nodiscard]] std::vector<std::filesystem::path> bundledSidecarCandidates() {
@@ -63,8 +77,7 @@ constexpr auto kManifestFileName = "sidecar_manifest.json";
 
 class RvcSidecar::Impl final {
 public:
-    explicit Impl(RvcSidecarConfig config)
-        : m_config(std::move(config)) {
+    explicit Impl(RvcSidecarConfig config) : m_config(std::move(config)) {
         if (m_config.sidecarRoot.empty()) {
             m_config.sidecarRoot = defaultSidecarRoot();
         }
@@ -103,28 +116,49 @@ public:
         STARTUPINFOW startupInfo{};
         startupInfo.cb = sizeof(startupInfo);
         PROCESS_INFORMATION processInfo{};
+        const auto job = CreateJobObjectW(nullptr, nullptr);
+        if (job == nullptr) {
+            return sidecarError("Unable to create the RVC sidecar process group.");
+        }
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION jobInfo{};
+        jobInfo.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        if (SetInformationJobObject(job, JobObjectExtendedLimitInformation, &jobInfo,
+                                    sizeof(jobInfo)) == 0) {
+            CloseHandle(job);
+            return sidecarError("Unable to configure the RVC sidecar process group.");
+        }
 
         std::vector<wchar_t> commandBuffer(command.begin(), command.end());
         commandBuffer.push_back(L'\0');
 
-        const BOOL created = CreateProcessW(nullptr,
-                                            commandBuffer.data(),
-                                            nullptr,
-                                            nullptr,
-                                            FALSE,
-                                            CREATE_NO_WINDOW,
-                                            nullptr,
-                                            m_config.sidecarRoot.wstring().c_str(),
-                                            &startupInfo,
-                                            &processInfo);
+        const BOOL created =
+            CreateProcessW(nullptr, commandBuffer.data(), nullptr, nullptr, FALSE,
+                           CREATE_NO_WINDOW | CREATE_SUSPENDED, nullptr,
+                           m_config.sidecarRoot.wstring().c_str(), &startupInfo, &processInfo);
         if (created == 0) {
+            CloseHandle(job);
             return sidecarError("Unable to launch RVC sidecar process.");
         }
+        if (AssignProcessToJobObject(job, processInfo.hProcess) == 0) {
+            TerminateProcess(processInfo.hProcess, 1);
+            CloseHandle(processInfo.hThread);
+            CloseHandle(processInfo.hProcess);
+            CloseHandle(job);
+            return sidecarError("Unable to own the RVC sidecar process group.");
+        }
+        if (ResumeThread(processInfo.hThread) == static_cast<DWORD>(-1)) {
+            TerminateJobObject(job, 1);
+            CloseHandle(processInfo.hThread);
+            CloseHandle(processInfo.hProcess);
+            CloseHandle(job);
+            return sidecarError("Unable to start the RVC sidecar process group.");
+        }
 
+        m_job = job;
         m_process = processInfo.hProcess;
         m_thread = processInfo.hThread;
-        const auto waitMs = static_cast<DWORD>(
-            std::min<std::int64_t>(m_config.startupTimeout.count(), 1000));
+        const auto waitMs =
+            static_cast<DWORD>(std::min<std::int64_t>(m_config.startupTimeout.count(), 1000));
         const DWORD waitResult = WaitForSingleObject(m_process, waitMs);
         if (waitResult == WAIT_OBJECT_0) {
             closeProcessHandles();
@@ -145,8 +179,7 @@ public:
     [[nodiscard]] RvcSidecarStatus status(std::string message = {}) const {
         const auto launcherPath = launcherPathForRoot(m_config.sidecarRoot);
         const bool installed = std::filesystem::exists(launcherPath) &&
-                               std::filesystem::exists(m_config.sidecarRoot /
-                                                       kManifestFileName);
+                               std::filesystem::exists(m_config.sidecarRoot / kManifestFileName);
         if (message.empty()) {
             message = installed ? "RVC sidecar is installed." : "RVC sidecar is not installed.";
         }
@@ -161,7 +194,11 @@ public:
 
     void stop() noexcept {
         if (processStillRunning(m_process)) {
-            TerminateProcess(m_process, 0);
+            if (m_job != nullptr) {
+                TerminateJobObject(m_job, 0);
+            } else {
+                TerminateProcess(m_process, 0);
+            }
             WaitForSingleObject(m_process, 3000);
         }
         closeProcessHandles();
@@ -174,16 +211,23 @@ private:
 
     [[nodiscard]] core::Expected<bool> ensureInstalled() const {
         const auto launcherPath = launcherPathForRoot(m_config.sidecarRoot);
-        if (std::filesystem::exists(launcherPath)) {
-            return true;
-        }
+        const auto installedManifest = m_config.sidecarRoot / kManifestFileName;
+        const bool installed =
+            std::filesystem::exists(launcherPath) && std::filesystem::exists(installedManifest);
 
         for (const auto& candidate : bundledSidecarCandidates()) {
-            if (std::filesystem::exists(candidate / kLauncherFileName)) {
+            const auto candidateLauncher = candidate / kLauncherFileName;
+            const auto candidateManifest = candidate / kManifestFileName;
+            if (std::filesystem::exists(candidateLauncher) &&
+                std::filesystem::exists(candidateManifest) &&
+                (!installed || !filesMatch(candidateManifest, installedManifest))) {
                 return installFromBundle(candidate, m_config.sidecarRoot);
             }
         }
 
+        if (installed) {
+            return true;
+        }
         return sidecarError("RVC sidecar bundle was not found.");
     }
 
@@ -196,15 +240,19 @@ private:
             CloseHandle(m_process);
             m_process = nullptr;
         }
+        if (m_job != nullptr) {
+            CloseHandle(m_job);
+            m_job = nullptr;
+        }
     }
 
     RvcSidecarConfig m_config;
+    HANDLE m_job{nullptr};
     HANDLE m_process{nullptr};
     HANDLE m_thread{nullptr};
 };
 
-RvcSidecar::RvcSidecar()
-    : RvcSidecar(defaultConfig()) {}
+RvcSidecar::RvcSidecar() : RvcSidecar(defaultConfig()) {}
 
 RvcSidecar::RvcSidecar(RvcSidecarConfig config)
     : m_impl(std::make_unique<Impl>(std::move(config))) {}
@@ -227,14 +275,12 @@ std::filesystem::path RvcSidecar::defaultSidecarRoot() {
     return std::filesystem::temp_directory_path() / "VoxStudio" / "rvc_sidecar";
 }
 
-std::filesystem::path RvcSidecar::launcherPathForRoot(
-    const std::filesystem::path& sidecarRoot) {
+std::filesystem::path RvcSidecar::launcherPathForRoot(const std::filesystem::path& sidecarRoot) {
     return sidecarRoot / kLauncherFileName;
 }
 
-core::Expected<bool> RvcSidecar::installFromBundle(
-    const std::filesystem::path& bundleRoot,
-    const std::filesystem::path& sidecarRoot) {
+core::Expected<bool> RvcSidecar::installFromBundle(const std::filesystem::path& bundleRoot,
+                                                   const std::filesystem::path& sidecarRoot) {
     if (!std::filesystem::exists(bundleRoot / kLauncherFileName)) {
         return sidecarError("RVC sidecar bundle is missing its launcher.");
     }
@@ -263,10 +309,8 @@ core::Expected<bool> RvcSidecar::installFromBundle(
         } else if (entry.is_regular_file()) {
             std::filesystem::create_directories(target.parent_path(), error);
             if (!error) {
-                std::filesystem::copy_file(entry.path(),
-                                           target,
-                                           std::filesystem::copy_options::overwrite_existing,
-                                           error);
+                std::filesystem::copy_file(
+                    entry.path(), target, std::filesystem::copy_options::overwrite_existing, error);
             }
         }
         if (error) {

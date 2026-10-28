@@ -1,0 +1,118 @@
+{
+  "entries": [
+    {
+      "term": "Nar Shaddaa",
+      "spoken": "Narr Sha-Da",
+      "aliases": ["Nar Shadaa", "Nar Shaddah"]
+    },
+    {
+      "term": "Bao-Dur",
+      "spoken": "Bae-oh Dure",
+      "aliases": ["Bao Dur", "BaoDur", "Bow Dur", "Bowdur"]
+    },
+    {
+      "term": "Dantooine",
+      "spoken": "Dan-too-een"
+    },
+    {
+      "term": "Kashyyyk",
+      "spoken": "kuh-sheek"
+    },
+    {
+      "term": "Korriban",
+      "spoken": "Kor-ih-bahn"
+    },
+    {
+      "term": "Malachor",
+      "spoken": "Mal-uh-kor"
+    },
+    {
+      "term": "Onderon",
+      "spoken": "On-der-on"
+    },
+    {
+      "term": "Peragus",
+      "spoken": "Pair-uh-gus"
+    },
+    {
+      "term": "Tatooine",
+      "spoken": "Tat-too-een"
+    },
+    {
+      "term": "Telos",
+      "spoken": "TEE-los",
+      "aliases": ["Tilos", "Tee Los"]
+    },
+    {
+      "term": "Rodian",
+      "spoken": "Rode-ian",
+      "aliases": ["Rodean"]
+    },
+    {
+      "term": "Pazaak",
+      "spoken": "puh Zack",
+      "guide": "puh-ZACK",
+      "aliases": ["Pazak"]
+    },
+    {
+      "term": "Sabacc",
+      "spoken": "sah back",
+      "guide": "sah-BAK"
+    },
+    {
+      "term": "Gamorreans",
+      "spoken": "ga-maw-ree-uhns",
+      "guide": "ga-maw-ree-uhns"
+    },
+    {
+      "term": "Gamorrean",
+      "spoken": "ga-maw-ree-uhn",
+      "guide": "ga-maw-ree-uhn"
+    },
+    {
+      "term": "Carth",
+      "spoken": "Karth",
+      "aliases": ["Karth"]
+    },
+    {
+      "term": "Atton",
+      "spoken": "At-un"
+    },
+    {
+      "term": "Kreia",
+      "spoken": "Kree-uh"
+    },
+    {
+      "term": "Bastila",
+      "spoken": "Bass-tih-luh"
+    },
+    {
+      "term": "Canderous",
+      "spoken": "Kan-der-us"
+    },
+    {
+      "term": "Juhani",
+      "spoken": "Joo-hah-nee"
+    },
+    {
+      "term": "Mandalore",
+      "spoken": "Man-duh-lor"
+    },
+    {
+      "term": "Manaan",
+      "spoken": "Muh-nahn"
+    },
+    {
+      "term": "Mira",
+      "spoken": "Meer-uh"
+    },
+    {
+      "term": "Revan",
+      "spoken": "Rev-an"
+    },
+    {
+      "term": "Taris",
+      "spoken": "Tair-iss"
+    }
+  ]
+}

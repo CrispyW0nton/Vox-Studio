@@ -19,3 +19,6 @@
 *.mp3 binary
 *.ogg binary
 *.opus binary
+
+# Recovery snapshots are byte-hashed originals; do not rewrite their line endings.
+tools/character_lab/**/*.py -text

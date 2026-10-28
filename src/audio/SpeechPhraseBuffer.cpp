@@ -36,6 +36,7 @@ SpeechPhraseBuffer::append(const std::span<const std::uint8_t> pcmBytes,
     }
 
     if (m_phrase.size() >= m_config.maximumPhraseBytes ||
+        (!speechActive && m_phrase.size() >= m_config.preferredPhraseBytes) ||
         m_trailingSilenceBytes >= m_config.trailingSilenceBytes) {
         return finishPhrase();
     }

@@ -6,9 +6,9 @@
 #include <miniaudio.h>
 
 #include <algorithm>
-#include <atomic>
 #include <cmath>
 #include <cstring>
+#include <deque>
 #include <filesystem>
 #include <memory>
 #include <mutex>
@@ -21,9 +21,6 @@ namespace {
 
 constexpr int kPlaybackSampleRate = 48000;
 constexpr int kPlaybackChannels = 2;
-constexpr std::size_t kRingSeconds = 12;
-constexpr std::size_t kRingSamples =
-    static_cast<std::size_t>(kPlaybackSampleRate * kPlaybackChannels) * kRingSeconds;
 constexpr float kMinPitchFactor = 0.25F;
 constexpr float kMaxPitchFactor = 4.0F;
 
@@ -139,8 +136,7 @@ constexpr float kMaxPitchFactor = 4.0F;
 
 class AudioEngine::Impl final {
 public:
-    Impl()
-        : m_ring(kRingSamples + 1U, 0.0F) {
+    Impl() {
         const auto initialized = initializeDevice(-1);
         (void)initialized;
     }
@@ -172,7 +168,7 @@ public:
             stereo = std::move(resampled).value();
         }
 
-        pushSamples(stereo.samples);
+        pushSamples(std::move(stereo.samples));
         return true;
     }
 
@@ -196,8 +192,9 @@ public:
     }
 
     void clear() noexcept {
-        m_readIndex.store(0, std::memory_order_release);
-        m_writeIndex.store(0, std::memory_order_release);
+        std::lock_guard lock{m_queueMutex};
+        m_queuedChunks.clear();
+        m_chunkOffset = 0;
     }
 
     [[nodiscard]] core::Expected<bool> setOutputDeviceIndex(const int outputDeviceIndex) {
@@ -289,46 +286,43 @@ private:
                           static_cast<std::size_t>(frameCount * kPlaybackChannels));
     }
 
-    [[nodiscard]] std::size_t nextIndex(const std::size_t index) const noexcept {
-        const auto next = index + 1U;
-        return next == m_ring.size() ? 0U : next;
-    }
-
     void readSamples(float* output, const std::size_t sampleCount) noexcept {
-        auto read = m_readIndex.load(std::memory_order_acquire);
-        const auto write = m_writeIndex.load(std::memory_order_acquire);
-        for (std::size_t index = 0; index < sampleCount; ++index) {
-            if (read == write) {
-                output[index] = 0.0F;
-                continue;
+        std::lock_guard lock{m_queueMutex};
+        std::size_t written = 0;
+        while (written < sampleCount && !m_queuedChunks.empty()) {
+            const auto& chunk = m_queuedChunks.front();
+            const auto available = chunk.size() - m_chunkOffset;
+            const auto requested = sampleCount - written;
+            const auto copied = std::min(available, requested);
+            std::copy_n(chunk.begin() + static_cast<std::ptrdiff_t>(m_chunkOffset),
+                        static_cast<std::ptrdiff_t>(copied),
+                        output + static_cast<std::ptrdiff_t>(written));
+            written += copied;
+            m_chunkOffset += copied;
+            if (m_chunkOffset == chunk.size()) {
+                m_queuedChunks.pop_front();
+                m_chunkOffset = 0;
             }
-            output[index] = m_ring[read];
-            read = nextIndex(read);
         }
-        m_readIndex.store(read, std::memory_order_release);
+        std::fill(output + static_cast<std::ptrdiff_t>(written),
+                  output + static_cast<std::ptrdiff_t>(sampleCount),
+                  0.0F);
     }
 
-    void pushSamples(const std::vector<float>& samples) noexcept {
-        auto write = m_writeIndex.load(std::memory_order_acquire);
-        auto read = m_readIndex.load(std::memory_order_acquire);
-        for (const float sample : samples) {
-            const auto next = nextIndex(write);
-            if (next == read) {
-                read = nextIndex(read);
-                m_readIndex.store(read, std::memory_order_release);
-            }
-            m_ring[write] = sample;
-            write = next;
+    void pushSamples(std::vector<float> samples) noexcept {
+        if (samples.empty()) {
+            return;
         }
-        m_writeIndex.store(write, std::memory_order_release);
+        std::lock_guard lock{m_queueMutex};
+        m_queuedChunks.push_back(std::move(samples));
     }
 
     ma_context m_context{};
     ma_device m_device{};
     std::vector<ma_device_info> m_playbackDeviceIds;
-    std::vector<float> m_ring;
-    std::atomic<std::size_t> m_readIndex{0};
-    std::atomic<std::size_t> m_writeIndex{0};
+    std::deque<std::vector<float>> m_queuedChunks;
+    std::size_t m_chunkOffset{0};
+    std::mutex m_queueMutex;
     std::mutex m_controlMutex;
     OutputFxSettings m_fxSettings;
     int m_outputDeviceIndex{-1};

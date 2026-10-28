@@ -7,10 +7,12 @@
 #include "io/scripts/ScriptImporter.h"
 
 #include <catch2/catch_test_macros.hpp>
+#include <sndfile.h>
 
 #include <chrono>
 #include <cmath>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -60,9 +62,19 @@ private:
     return audio;
 }
 
+[[nodiscard]] bool isMp3File(const std::filesystem::path& path) {
+    SF_INFO info{};
+    const std::unique_ptr<SNDFILE, decltype(&sf_close)> file{
+        sf_open(path.string().c_str(), SFM_READ, &info),
+        &sf_close,
+    };
+    return file != nullptr && (info.format & SF_FORMAT_TYPEMASK) == SF_FORMAT_MPEG &&
+           (info.format & SF_FORMAT_SUBMASK) == SF_FORMAT_MPEG_LAYER_III;
+}
+
 } // namespace
 
-TEST_CASE("take manager stores Opus takes and restores active take", "[core][takes]") {
+TEST_CASE("take manager stores MP3 takes and restores active take", "[core][takes]") {
     const TemporaryDirectory directory;
     const auto projectRoot = directory.path() / "Takes.vox";
 
@@ -72,8 +84,8 @@ TEST_CASE("take manager stores Opus takes and restores active take", "[core][tak
 
     const voxstudio::db::VoiceRepository voiceRepository;
     const voxstudio::db::VoiceRecord voice{
-        "voice_alice", "Alice Clone", "ivc", "{}", "{}", "2026-01-01T00:00:00Z",
-        "2026-01-01T00:00:00Z"};
+        "voice_alice",          "Alice Clone",         "ivc", "{}", "{}",
+        "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"};
     auto voiceSaved = voiceRepository.upsertVoice(projectRoot, voice);
     REQUIRE(voiceSaved.hasValue());
 
@@ -90,15 +102,21 @@ TEST_CASE("take manager stores Opus takes and restores active take", "[core][tak
     voxstudio::core::VoiceSettings settings;
     settings.stability = 0.25;
     auto savedTake = manager.saveTtsTake(projectRoot, lineId, "voice_alice", sinePcm(), settings);
+    const auto saveError = savedTake ? std::string{} : savedTake.error().message;
+    INFO(saveError);
     REQUIRE(savedTake.hasValue());
     CHECK(savedTake.value().take.starred);
     CHECK(savedTake.value().take.source == "tts");
+    CHECK(savedTake.value().take.filePath.ends_with(".mp3"));
+    CHECK(savedTake.value().absolutePath.extension() == ".mp3");
+    CHECK(savedTake.value().take.metadataJson.find("\"codec\":\"mp3\"") != std::string::npos);
     CHECK(std::filesystem::exists(savedTake.value().absolutePath));
+    CHECK(isMp3File(savedTake.value().absolutePath));
 
-    auto decoded = voxstudio::audio::readOpusFile(savedTake.value().absolutePath);
-    REQUIRE(decoded.hasValue());
-    CHECK(decoded.value().sampleRate == 48000);
-    CHECK(decoded.value().frameCount() > 0);
+    auto playbackDecoded = voxstudio::audio::decodeAudioFile(savedTake.value().absolutePath);
+    REQUIRE(playbackDecoded.hasValue());
+    CHECK(playbackDecoded.value().sampleRate == 48000);
+    CHECK(playbackDecoded.value().frameCount() > 0);
 
     const voxstudio::db::TakeRepository takeRepository;
     auto takes = takeRepository.listTakes(projectRoot, lineId);
@@ -123,7 +141,96 @@ TEST_CASE("take manager stores Opus takes and restores active take", "[core][tak
     CHECK_FALSE(std::filesystem::exists(savedTake.value().absolutePath));
 }
 
-TEST_CASE("take manager stores STS takes as active Opus takes", "[core][takes][sts]") {
+TEST_CASE("take manager exports selected takes as collision-safe MP3 files",
+          "[core][takes][export]") {
+    const TemporaryDirectory directory;
+    const auto projectRoot = directory.path() / "ExportTakes.vox";
+    const auto exportFolder = directory.path() / "Exports";
+
+    const voxstudio::db::ProjectRepository projectRepository;
+    auto project = projectRepository.createProject(projectRoot, "ExportTakes");
+    REQUIRE(project.hasValue());
+
+    const voxstudio::db::VoiceRepository voiceRepository;
+    const voxstudio::db::VoiceRecord voice{
+        "voice_atton", "Atton", "ivc", "{}", "{}", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"};
+    REQUIRE(voiceRepository.upsertVoice(projectRoot, voice).hasValue());
+
+    const voxstudio::db::ScriptRepository scriptRepository;
+    auto line = scriptRepository.createPerformanceLine(projectRoot, "Atton", "voice_atton",
+                                                       "Pure pazaak. The table is ours.");
+    REQUIRE(line.hasValue());
+
+    voxstudio::core::TakeManager manager;
+    REQUIRE(manager
+                .saveVoxCpmTextTake(projectRoot, line.value().id, "voice_atton", sinePcm(),
+                                    "sarcastic", "storytelling")
+                .hasValue());
+    REQUIRE(manager
+                .saveVoxCpmTextTake(projectRoot, line.value().id, "voice_atton", sinePcm(),
+                                    "natural", "standard")
+                .hasValue());
+
+    const voxstudio::db::TakeRepository takeRepository;
+    auto takes = takeRepository.listTakes(projectRoot, line.value().id);
+    REQUIRE(takes.hasValue());
+    REQUIRE(takes.value().size() == 2);
+
+    auto exported = manager.exportTakesAsMp3(projectRoot, exportFolder, takes.value());
+    REQUIRE(exported.hasValue());
+    REQUIRE(exported.value().size() == 2);
+    for (std::size_t index = 0; index < exported.value().size(); ++index) {
+        CAPTURE(exported.value()[index]);
+        CHECK(exported.value()[index].extension() == ".mp3");
+        CHECK(exported.value()[index].filename().string().starts_with("Atton - Pure pazaak"));
+        CHECK(isMp3File(exported.value()[index]));
+        CHECK(std::filesystem::file_size(exported.value()[index]) ==
+              std::filesystem::file_size(projectRoot / takes.value()[index].filePath));
+    }
+
+    auto exportedAgain = manager.exportTakesAsMp3(projectRoot, exportFolder, takes.value());
+    REQUIRE(exportedAgain.hasValue());
+    REQUIRE(exportedAgain.value().size() == 2);
+    CHECK(exportedAgain.value().front() != exported.value().front());
+    CHECK(exportedAgain.value().front().stem().string().ends_with("(2)"));
+}
+
+TEST_CASE("take manager converts legacy takes and rolls back failed batch exports",
+          "[core][takes][export]") {
+    const TemporaryDirectory directory;
+    const auto projectRoot = directory.path() / "LegacyExport.vox";
+    const auto takeFolder = projectRoot / "takes" / "legacy";
+    const auto exportFolder = directory.path() / "LegacyExports";
+    std::filesystem::create_directories(takeFolder);
+
+    const auto legacyPath = takeFolder / "old-take.opus";
+    REQUIRE(voxstudio::audio::writeOpusFile(legacyPath, sinePcm()).hasValue());
+
+    voxstudio::db::TakeRecord legacyTake;
+    legacyTake.id = "old-take";
+    legacyTake.filePath = "takes/legacy/old-take.opus";
+    legacyTake.characterName = "Kreia";
+    legacyTake.lineText = "A lesson from the past.";
+
+    voxstudio::core::TakeManager manager;
+    const std::vector legacyTakes{legacyTake};
+    auto exported = manager.exportTakesAsMp3(projectRoot, exportFolder, legacyTakes);
+    REQUIRE(exported.hasValue());
+    REQUIRE(exported.value().size() == 1);
+    CHECK(isMp3File(exported.value().front()));
+
+    auto invalidTake = legacyTake;
+    invalidTake.id = "unsafe";
+    invalidTake.filePath = "../outside.mp3";
+    const std::vector mixedTakes{legacyTake, invalidTake};
+    const auto rollbackFolder = directory.path() / "RolledBack";
+    auto failed = manager.exportTakesAsMp3(projectRoot, rollbackFolder, mixedTakes);
+    REQUIRE_FALSE(failed.hasValue());
+    REQUIRE(std::filesystem::exists(rollbackFolder));
+    CHECK(std::filesystem::is_empty(rollbackFolder));
+}
+
+TEST_CASE("take manager stores STS takes as active MP3 takes", "[core][takes][sts]") {
     const TemporaryDirectory directory;
     const auto projectRoot = directory.path() / "StsTakes.vox";
 
@@ -133,7 +240,7 @@ TEST_CASE("take manager stores STS takes as active Opus takes", "[core][takes][s
 
     const voxstudio::db::VoiceRepository voiceRepository;
     const voxstudio::db::VoiceRecord voice{
-        "voice_bob", "Bob Clone", "ivc", "{}", "{}", "2026-01-01T00:00:00Z",
+        "voice_bob",           "Bob Clone", "ivc", "{}", "{}", "2026-01-01T00:00:00Z",
         "2026-01-01T00:00:00Z"};
     auto voiceSaved = voiceRepository.upsertVoice(projectRoot, voice);
     REQUIRE(voiceSaved.hasValue());
@@ -148,11 +255,13 @@ TEST_CASE("take manager stores STS takes as active Opus takes", "[core][takes][s
     const auto lineId = imported.value().lines.front().id;
 
     voxstudio::core::TakeManager manager;
-    auto savedTake = manager.saveStsTake(
-        projectRoot, lineId, "voice_bob", sinePcm(), voxstudio::core::defaultVoiceSettings());
+    auto savedTake = manager.saveStsTake(projectRoot, lineId, "voice_bob", sinePcm(),
+                                         voxstudio::core::defaultVoiceSettings());
     REQUIRE(savedTake.hasValue());
     CHECK(savedTake.value().take.starred);
     CHECK(savedTake.value().take.source == "sts");
+    CHECK(savedTake.value().absolutePath.extension() == ".mp3");
+    CHECK(savedTake.value().take.metadataJson.find("\"codec\":\"mp3\"") != std::string::npos);
     CHECK(std::filesystem::exists(savedTake.value().absolutePath));
 
     const voxstudio::db::TakeRepository takeRepository;
@@ -160,6 +269,67 @@ TEST_CASE("take manager stores STS takes as active Opus takes", "[core][takes][s
     REQUIRE(takes.hasValue());
     REQUIRE(takes.value().size() == 1);
     CHECK(takes.value().front().source == "sts");
+}
+
+TEST_CASE("take manager labels VoxCPM2 performance takes", "[core][takes][voxcpm]") {
+    const TemporaryDirectory directory;
+    const auto projectRoot = directory.path() / "VoxCpmTakes.vox";
+
+    const voxstudio::db::ProjectRepository projectRepository;
+    auto project = projectRepository.createProject(projectRoot, "VoxCpmTakes");
+    REQUIRE(project.hasValue());
+
+    const voxstudio::db::VoiceRepository voiceRepository;
+    const voxstudio::db::VoiceRecord voice{
+        "voice_carth", "Carth", "ivc", "{}", "{}", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"};
+    REQUIRE(voiceRepository.upsertVoice(projectRoot, voice).hasValue());
+
+    auto parsed = voxstudio::io::scripts::importScriptFile(fixturePath("scripts/sample.txt"));
+    REQUIRE(parsed.hasValue());
+    const voxstudio::db::ScriptRepository scriptRepository;
+    auto imported =
+        scriptRepository.importScript(projectRoot, parsed.value(), {{"Alice", "voice_carth"}});
+    REQUIRE(imported.hasValue());
+
+    voxstudio::core::TakeManager manager;
+    auto savedTake = manager.saveVoxCpmTake(projectRoot, imported.value().lines.front().id,
+                                            "voice_carth", sinePcm());
+
+    REQUIRE(savedTake.hasValue());
+    CHECK(savedTake.value().take.source == "voxcpm2");
+    CHECK(savedTake.value().take.metadataJson.find("\"engine\":\"voxcpm2\"") != std::string::npos);
+    CHECK(std::filesystem::exists(savedTake.value().absolutePath));
+}
+
+TEST_CASE("take manager stores VoxCPM2 text delivery tags", "[core][takes][voxcpm][tts]") {
+    const TemporaryDirectory directory;
+    const auto projectRoot = directory.path() / "VoxCpmTextTakes.vox";
+
+    const voxstudio::db::ProjectRepository projectRepository;
+    auto project = projectRepository.createProject(projectRoot, "VoxCpmTextTakes");
+    REQUIRE(project.hasValue());
+
+    const voxstudio::db::VoiceRepository voiceRepository;
+    const voxstudio::db::VoiceRecord voice{
+        "voice_carth", "Carth", "ivc", "{}", "{}", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"};
+    REQUIRE(voiceRepository.upsertVoice(projectRoot, voice).hasValue());
+
+    const voxstudio::db::ScriptRepository scriptRepository;
+    auto line = scriptRepository.createPerformanceLine(projectRoot, "Carth", "voice_carth",
+                                                       "The Rodian remembered Telos.");
+    REQUIRE(line.hasValue());
+
+    voxstudio::core::TakeManager manager;
+    auto savedTake = manager.saveVoxCpmTextTake(projectRoot, line.value().id, "voice_carth",
+                                                sinePcm(), "reflective", "storytelling");
+
+    REQUIRE(savedTake.hasValue());
+    CHECK(savedTake.value().take.source == "voxcpm2_tts");
+    CHECK(savedTake.value().take.metadataJson.find("\"delivery\":\"reflective\"") !=
+          std::string::npos);
+    CHECK(savedTake.value().take.metadataJson.find("\"performance_mode\":\"storytelling\"") !=
+          std::string::npos);
+    CHECK(std::filesystem::exists(savedTake.value().absolutePath));
 }
 
 TEST_CASE("take manager stores local RVC takes with model id", "[core][takes][rvc]") {
@@ -194,6 +364,37 @@ TEST_CASE("take manager stores local RVC takes with model id", "[core][takes][rv
     CHECK(takes.value().front().rvcModelId == "hero_rvc");
 }
 
+TEST_CASE("take manager stores Performance Mirror takes with character voice id",
+          "[core][takes][performance-mirror]") {
+    const TemporaryDirectory directory;
+    const auto projectRoot = directory.path() / "PerformanceMirrorTakes.vox";
+
+    const voxstudio::db::ProjectRepository projectRepository;
+    auto project = projectRepository.createProject(projectRoot, "PerformanceMirrorTakes");
+    REQUIRE(project.hasValue());
+
+    const voxstudio::db::VoiceRepository voiceRepository;
+    const voxstudio::db::VoiceRecord voice{
+        "voice_atton",         "Atton", "local", "{}", "{}", "2026-01-01T00:00:00Z",
+        "2026-01-01T00:00:00Z"};
+    REQUIRE(voiceRepository.upsertVoice(projectRoot, voice).hasValue());
+
+    const voxstudio::db::ScriptRepository scriptRepository;
+    auto line = scriptRepository.createPerformanceLine(projectRoot, "Atton", "voice_atton",
+                                                       "Live mirror test");
+    REQUIRE(line.hasValue());
+
+    voxstudio::core::TakeManager manager;
+    auto savedTake =
+        manager.savePerformanceMirrorTake(projectRoot, line.value().id, "voice_atton", sinePcm());
+
+    REQUIRE(savedTake.hasValue());
+    CHECK(savedTake.value().take.source == "performance_mirror");
+    CHECK(savedTake.value().take.voiceId == "voice_atton");
+    CHECK(savedTake.value().take.rvcModelId.empty());
+    CHECK(savedTake.value().take.metadataJson.find("\"engine\":\"seed_vc\"") != std::string::npos);
+}
+
 TEST_CASE("voice settings JSON round trips with defaults", "[core][takes]") {
     voxstudio::core::VoiceSettings settings;
     settings.stability = 0.2;
@@ -201,8 +402,8 @@ TEST_CASE("voice settings JSON round trips with defaults", "[core][takes]") {
     settings.style = 0.4;
     settings.useSpeakerBoost = false;
 
-    auto parsed = voxstudio::core::voiceSettingsFromJson(
-        voxstudio::core::voiceSettingsToJson(settings));
+    auto parsed =
+        voxstudio::core::voiceSettingsFromJson(voxstudio::core::voiceSettingsToJson(settings));
     REQUIRE(parsed.hasValue());
     CHECK(parsed.value().stability == 0.2);
     CHECK(parsed.value().similarityBoost == 0.9);
