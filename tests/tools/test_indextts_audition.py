@@ -1,5 +1,6 @@
 import contextlib
 import io
+import importlib.util
 import json
 from pathlib import Path
 import sys
@@ -59,6 +60,227 @@ class IndexAuditionTests(unittest.TestCase):
         (self.model / 'codec.pth').unlink()
         with self.assertRaisesRegex(ValueError, 'Complete existing'):
             audition.validate(self.recipe)
+
+    def test_pre_clamp_gain_validation_and_backend_isolation(self):
+        job = self.recipe['jobs'][0]
+        for value in (True, False, None, '-6', float('nan'), float('inf'), -18.001, .001, -(10**400)):
+            for validate in (index.settings, lambda j: audition.validate(dict(self.recipe, jobs=[j])),
+                             lambda j: audition.preview(dict(self.recipe, jobs=[j]))):
+                with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'preClampGainDb'):
+                    validate(dict(job, preClampGainDb=value))
+        for value in (-18, -6.0, 0):
+            audition.validate(dict(self.recipe, jobs=[dict(job, preClampGainDb=value)]))
+        for backend in ('qwen', 'chatterbox'):
+            for value in (-6, 0):
+                other_job = {k: v for k, v in job.items() if k != 'emotionVector'}
+                with self.subTest(backend=backend, value=value), self.assertRaisesRegex(ValueError, 'preClampGainDb'):
+                    audition.validate(dict(self.recipe, backend=backend,
+                                           jobs=[dict(other_job, preClampGainDb=value)]))
+
+    def test_explicit_zero_retains_legacy_without_torch_or_hooks(self):
+        import numpy as np
+
+        class Model:
+            @property
+            def bigvgan(self):
+                raise AssertionError('Default path must not inspect or hook the vocoder')
+
+            def infer(self, **kwargs):
+                return 22050, np.array([-32767, 0, 32767], dtype=np.int16)
+
+        for value in (0, -0.0):
+            with self.subTest(value=value), mock.patch.dict(sys.modules, {'torch': None}):
+                audio, _, metadata = index.generate(Model(), self.recipe['reference'],
+                                                    dict(self.recipe['jobs'][0], preClampGainDb=value))
+            np.testing.assert_array_equal(audio, np.array([-32767, 0, 32767], dtype=np.float32) / 32768)
+            self.assertNotIn('preClampGainDb', metadata)
+
+    def test_pre_clamp_gain_invalidates_preview_before_output(self):
+        with mock.patch.object(audition.importlib.metadata, 'version', return_value='test'):
+            first = audition.preview(self.recipe)
+            self.recipe['jobs'][0]['preClampGainDb'] = -6
+            second = audition.preview(self.recipe)
+            self.assertNotEqual(first['revision'], second['revision'])
+            with self.assertRaisesRegex(ValueError, 'Preview revision changed'):
+                audition.run(self.recipe, first['revision'])
+        self.assertFalse(Path(self.recipe['outputRoot']).exists())
+
+    @unittest.skipUnless(importlib.util.find_spec('torch'), 'Optional actual PyTorch CPU fixture unavailable')
+    def test_pre_clamp_headroom_preserves_signal_before_native_clipping(self):
+        import numpy as np
+        import torch
+
+        class Vocoder(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv_post = torch.nn.Identity()
+                self.use_tanh_at_final = False
+
+            def forward(self, value):
+                # Installed BigVGAN config selects this earlier hard clamp.
+                return torch.clamp(self.conv_post(value), -1, 1)
+
+        class Model:
+            def __init__(self):
+                self.bigvgan = Vocoder()
+                self.input = torch.tensor([[[-1.8, -1.2, -.5, 0., .5, 1.2, 1.8]]])
+
+            def infer(self, **kwargs):
+                # Raw final conv -> vocoder clamp -> PCM clamp -> int16.
+                output = self.bigvgan(self.input)
+                return 22050, torch.clamp(32767 * output, -32767, 32767).to(torch.int16).numpy()
+
+        model = Model()
+        original = model.input.clone()
+        job = self.recipe['jobs'][0]
+        legacy, _, old_settings = index.generate(model, self.recipe['reference'], job)
+        self.assertEqual(legacy[-1], 32767 / 32768)
+        self.assertEqual(legacy[-2], legacy[-1])  # Distinct over-unity peaks were lost.
+        self.assertNotIn('preClampGainDb', old_settings)
+        with contextlib.redirect_stdout(io.StringIO()):
+            clean, _, settings = index.generate(model, self.recipe['reference'], dict(job, preClampGainDb=-6))
+        gain = 10 ** (-6 / 20)
+        np.testing.assert_allclose(clean, original.numpy().reshape(-1) * gain * (32767 / 32768),
+                                   rtol=0, atol=1 / 32768)
+        self.assertGreater(clean[-1], clean[-2])
+        self.assertLess(max(abs(clean)), 32767 / 32768)
+        self.assertAlmostEqual(settings['vocoderPeaks'][0]['rawPeak'], 1.8, places=6)
+        self.assertAlmostEqual(settings['vocoderPeaks'][0]['adjustedPeak'], 1.8 * gain, places=6)
+        self.assertEqual(settings['preClampGainDb'], -6)
+        torch.testing.assert_close(model.input, original, rtol=0, atol=0)
+        self.assertEqual(len(model.bigvgan._forward_hooks), 0)
+        self.assertEqual(len(model.bigvgan.conv_post._forward_hooks), 0)
+
+    @unittest.skipUnless(importlib.util.find_spec('torch'), 'Optional actual PyTorch CPU fixture unavailable')
+    def test_multiple_vocoder_calls_and_low_precision_gain_math(self):
+        import numpy as np
+        import torch
+
+        class Vocoder(torch.nn.Module):
+            use_tanh_at_final = False
+
+            def __init__(self):
+                super().__init__()
+                self.conv_post = torch.nn.Identity()
+
+            def forward(self, x):
+                return torch.clamp(self.conv_post(x), -1, 1)
+
+        class Model:
+            def __init__(self, dtype):
+                self.bigvgan = Vocoder()
+                self.chunks = [torch.tensor([-.3, .3], dtype=dtype),
+                               torch.tensor([-1.8, 1.8], dtype=dtype)]
+
+            def infer(self, **kwargs):
+                chunks = [torch.clamp(32767 * self.bigvgan(c), -32767, 32767).to(torch.int16).numpy()
+                          for c in self.chunks]
+                return 22050, np.concatenate(chunks)
+
+        for dtype in (torch.float32, torch.float16, torch.bfloat16):
+            model = Model(dtype)
+            with self.subTest(dtype=dtype), contextlib.redirect_stdout(io.StringIO()):
+                audio, _, metadata = index.generate(model, self.recipe['reference'],
+                                                    dict(self.recipe['jobs'][0], preClampGainDb=-6))
+            expected = torch.cat(model.chunks).float().numpy() * 10**(-6/20) * (32767/32768)
+            np.testing.assert_allclose(audio, expected, rtol=0, atol=1/32768)
+            self.assertEqual(len(metadata['vocoderPeaks']), 2)
+            self.assertTrue(all(p['vocoderOutputVerified'] for p in metadata['vocoderPeaks']))
+            self.assertEqual(metadata['preClampMathDtype'], 'float32')
+            self.assertEqual(len(model.bigvgan._forward_hooks), 0)
+            self.assertEqual(len(model.bigvgan.conv_post._forward_hooks), 0)
+
+    @unittest.skipUnless(importlib.util.find_spec('torch'), 'Optional actual PyTorch CPU fixture unavailable')
+    def test_caught_guard_post_gain_changes_and_unobserved_pcm_are_rejected(self):
+        import numpy as np
+        import torch
+
+        class Vocoder(torch.nn.Module):
+            use_tanh_at_final = False
+
+            def __init__(self, alter):
+                super().__init__()
+                self.conv_post = torch.nn.Identity()
+                self.alter = alter
+
+            def forward(self, x):
+                out = torch.clamp(self.conv_post(x), -1, 1)
+                return out * .5 if self.alter else out
+
+        class Model:
+            def __init__(self, mode):
+                self.bigvgan = Vocoder(mode == 'alter')
+                self.mode = mode
+
+            def infer(self, **kwargs):
+                first = self.bigvgan(torch.tensor([.5]))
+                if self.mode == 'swallow':
+                    try:
+                        self.bigvgan(torch.tensor([10.]))
+                    except RuntimeError:
+                        pass  # Mimic a fallback that discards a failed segment.
+                pcm = torch.clamp(32767*first, -32767, 32767).to(torch.int16).numpy()
+                return 22050, np.concatenate([pcm, np.array([32767], dtype=np.int16)]) if self.mode == 'bypass' else pcm
+
+        errors = dict(alter='modified the scaled waveform', swallow='Headroom check failed',
+                      bypass='exceeds observed pre-clamp headroom')
+        for mode, message in errors.items():
+            model = Model(mode)
+            with self.subTest(mode=mode), contextlib.redirect_stdout(io.StringIO()), \
+                    self.assertRaisesRegex(RuntimeError, message):
+                index.generate(model, self.recipe['reference'], dict(self.recipe['jobs'][0], preClampGainDb=-6))
+            self.assertEqual(len(model.bigvgan._forward_hooks), 0)
+            self.assertEqual(len(model.bigvgan.conv_post._forward_hooks), 0)
+
+    @unittest.skipUnless(importlib.util.find_spec('torch'), 'Optional actual PyTorch CPU fixture unavailable')
+    def test_pre_clamp_hook_cleanup_and_unobserved_output_rejection(self):
+        import numpy as np
+        import torch
+
+        class Vocoder(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv_post = torch.nn.Identity()
+                self.use_tanh_at_final = False
+
+            def forward(self, value):
+                return torch.clamp(self.conv_post(value), -1, 1)
+
+        class Model:
+            def __init__(self, mode):
+                self.bigvgan = Vocoder()
+                self.mode = mode
+
+            def infer(self, **kwargs):
+                if self.mode == 'bypass':
+                    return 22050, np.zeros(8, dtype=np.int16)
+                value = dict(nonfinite=float('nan'), too_loud=10.).get(self.mode, .5)
+                output = (torch.tensor([value]),) if self.mode == 'tuple' else torch.tensor([value])
+                if self.mode == 'empty':
+                    output = torch.empty(0)
+                elif self.mode == 'integer':
+                    output = torch.tensor([1], dtype=torch.int32)
+                self.bigvgan(output)
+                raise RuntimeError('inference failed')
+
+        expected = dict(bypass='not observed', nonfinite='Nonfinite', too_loud='no PCM headroom',
+                        tuple='Unexpected vocoder output', empty='Unexpected vocoder output',
+                        integer='Unexpected vocoder output', failure='inference failed')
+        job = dict(self.recipe['jobs'][0], preClampGainDb=-6)
+        for mode, error in expected.items():
+            model = Model(mode)
+            with self.subTest(mode=mode), contextlib.redirect_stdout(io.StringIO()), \
+                    self.assertRaisesRegex(RuntimeError, error):
+                index.generate(model, self.recipe['reference'], job)
+            self.assertEqual(len(model.bigvgan._forward_hooks), 0)
+            self.assertEqual(len(model.bigvgan.conv_post._forward_hooks), 0)
+        with self.assertRaisesRegex(RuntimeError, 'inspected BigVGAN'):
+            index.generate(object(), self.recipe['reference'], job)
+        model = Model('failure')
+        model.bigvgan.use_tanh_at_final = True
+        with self.assertRaisesRegex(RuntimeError, 'non-tanh final convolution'):
+            index.generate(model, self.recipe['reference'], job)
+        self.assertEqual(len(model.bigvgan.conv_post._forward_hooks), 0)
 
     def test_engine_code_and_emotion_invalidate_preview_before_output(self):
         with mock.patch.object(audition.importlib.metadata, 'version', return_value='test'):

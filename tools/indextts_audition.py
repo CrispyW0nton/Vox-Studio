@@ -18,7 +18,15 @@ EMOTION_ORDER = ('happy', 'angry', 'sad', 'afraid', 'disgusted',
 LICENSE = 'bilibili-model-license'
 
 
+def pre_clamp_gain_db(job):
+    value = job.get('preClampGainDb', 0)
+    if type(value) not in (int, float) or not -18 <= value <= 0:
+        raise ValueError('preClampGainDb must be a finite number from -18 to 0')
+    return float(value)
+
+
 def settings(job):
+    pre_clamp_gain_db(job)
     vector = job.get('emotionVector')
     if not isinstance(vector, list) or len(vector) != 8:
         raise ValueError('IndexTTS requires an eight-value emotionVector')
@@ -100,18 +108,99 @@ def load(recipe, torch):
                      use_qwen_emo=False)
 
 
+def infer_with_headroom(model, reference, job, effective):
+    """Apply constant gain before upstream PCM clipping, on this owned model only."""
+    gain_db = pre_clamp_gain_db(job)
+    kwargs = dict(spk_audio_prompt=reference, text=job['text'],
+                  output_path=None, lang='EN', **effective)
+    if gain_db == 0:
+        return model.infer(**kwargs), {}
+
+    import torch
+    vocoder = getattr(model, 'bigvgan', None)
+    final_conv = getattr(vocoder, 'conv_post', None)
+    if (not isinstance(vocoder, torch.nn.Module) or
+            getattr(vocoder, 'use_tanh_at_final', None) is not False or
+            not isinstance(final_conv, torch.nn.Module)):
+        raise RuntimeError('Pre-clamp headroom requires the inspected BigVGAN non-tanh final convolution')
+    gain = 10 ** (gain_db / 20)
+    peaks = []
+    verified = []
+    errors = []
+    expected_output = None
+
+    def attenuate(_module, _args, output):
+        nonlocal expected_output
+        try:
+            if not torch.is_tensor(output) or not output.is_floating_point() or output.numel() == 0:
+                raise RuntimeError('Unexpected vocoder output for pre-clamp headroom')
+            if not bool(torch.isfinite(output).all().item()):
+                raise RuntimeError('Nonfinite vocoder output')
+            # Final waveform gain in fp32 avoids bf16/fp16 rounding before PCM.
+            scaled = output.float() * gain
+            row = dict(rawPeak=float(output.detach().float().abs().max().item()),
+                       adjustedPeak=float(scaled.detach().abs().max().item()))
+            peaks.append(row)
+            print(json.dumps(dict(stage='pre-clamp-headroom', id=job.get('id'),
+                                  gainDb=gain_db, **row)), flush=True)
+            if row['adjustedPeak'] >= 1:
+                raise RuntimeError('Pre-clamp gain leaves no PCM headroom; preview a quieter job')
+            expected_output = scaled.detach().clone()
+            return scaled
+        except Exception as error:
+            errors.append(error)
+            raise
+
+    def observe_output(_module, _args, output):
+        try:
+            if len(peaks) != len(verified) + 1 or expected_output is None:
+                raise RuntimeError('Expected exactly one observed final convolution per vocoder call')
+            if not torch.is_tensor(output) or not torch.equal(output, expected_output):
+                raise RuntimeError('Vocoder modified the scaled waveform after its final convolution')
+            peaks[-1]['vocoderOutputVerified'] = True
+            verified.append(peaks[-1])
+        except Exception as error:
+            errors.append(error)
+            raise
+
+    # The configured BigVGAN also clamps inside forward(), before returning.
+    # Hook its final convolution so gain precedes that first irreversible clamp.
+    handles = []
+    try:
+        handles.append(final_conv.register_forward_hook(attenuate))
+        handles.append(vocoder.register_forward_hook(observe_output))
+        result = model.infer(**kwargs)
+        if errors:
+            raise RuntimeError('Headroom check failed during inference') from errors[0]
+        if not peaks or len(peaks) != len(verified):
+            raise RuntimeError('Vocoder headroom hook was not observed; refuse unqualified PCM')
+    finally:
+        for handle in reversed(handles):
+            handle.remove()
+    return result, dict(preClampGainDb=gain_db, preClampGain=gain, vocoderPeaks=peaks,
+                        preClampStage='bigvgan.conv_post before vocoder and PCM hard clamps',
+                        preClampMathDtype='float32',
+                        preClampProcessing='Constant gain; no normalization or limiting')
+
+
 def generate(model, reference, job):
     import numpy as np
     effective = settings(job)
-    result = model.infer(spk_audio_prompt=reference, text=job['text'],
-                         output_path=None, lang='EN', **effective)
+    result, headroom = infer_with_headroom(model, reference, job, effective)
     if not isinstance(result, tuple) or len(result) != 2:
         raise RuntimeError('IndexTTS returned no native PCM audio')
     rate, pcm = result
     native = np.asarray(pcm)
     if native.dtype != np.int16:
         raise RuntimeError('Unexpected IndexTTS native PCM type; inspect before conversion')
+    if headroom:
+        if not native.size:
+            raise RuntimeError('No native PCM samples after observed vocoder output')
+        bound = min(32766, math.ceil(32767 * max(p['adjustedPeak'] for p in headroom['vocoderPeaks'])))
+        if int(np.abs(native.astype(np.int32)).max()) > bound:
+            raise RuntimeError('Returned native PCM exceeds observed pre-clamp headroom')
+        headroom['nativePCMPeakBound'] = bound
     audio = native.reshape(-1).astype(np.float32) / 32768.0
-    return audio, int(rate), dict(**effective, emotion_order=EMOTION_ORDER,
+    return audio, int(rate), dict(**effective, **headroom, emotion_order=EMOTION_ORDER,
                                  license=LICENSE, dtype='bfloat16',
                                  native_encoding='int16; lossless scaling to float WAV')

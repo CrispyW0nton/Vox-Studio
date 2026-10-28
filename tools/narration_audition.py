@@ -76,6 +76,8 @@ def validate(recipe: dict) -> None:
         raise ValueError('One to twelve bounded audition jobs required')
     names = set()
     for job in jobs:
+        if 'preClampGainDb' in job and recipe['backend'] != 'indextts25':
+            raise ValueError('preClampGainDb is supported only for IndexTTS-2.5')
         if 'emotionVector' in job or recipe['backend'] == 'indextts25':
             if recipe['backend'] != 'indextts25':
                 raise ValueError('emotionVector is supported only for IndexTTS-2.5')
